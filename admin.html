@@ -37,6 +37,19 @@
   .lb li { padding: 8px 12px; }
   #login { max-width: 380px; margin: 12vh auto; }
   .hint { font-size: .8rem; color: var(--muted); margin-top: 10px; }
+  .addq { display: grid; grid-template-columns: 2fr 1fr auto; gap: 10px; margin: 6px 0 4px; }
+  .addq input { font-size: 1rem; padding: 11px 14px; }
+  @media (max-width: 760px) { .addq { grid-template-columns: 1fr; } }
+  .qrow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 14px; border-radius: 12px;
+          background: var(--bg2); border: 1px solid var(--line); margin-top: 8px; }
+  .qrow.active { border-color: var(--accent2); }
+  .qrow .qn { flex: 1; min-width: 200px; }
+  .qrow .qn b { font-size: 1.05rem; }
+  .qrow .qn a { color: var(--muted); }
+  .qrow .acts { display: flex; gap: 8px; align-items: center; }
+  .qrow .btn { padding: 9px 14px; font-size: .95rem; }
+  .pill.ok { color: var(--ok); border-color: #2fd47e66; }
+  .pill.wait { color: var(--accent2); border-color: #ffd23f66; }
   kbd { background: rgba(0,0,0,.18); color: inherit; border: 1px solid rgba(255,255,255,.25); border-radius: 6px; padding: 1px 6px; font-family: inherit; font-size: .8rem; }
 </style>
 </head>
@@ -74,6 +87,18 @@
         <p class="hint">Clic sur ✕ pour retirer un joueur (nom inapproprié, doublon…).</p>
       </aside>
     </div>
+    <section class="card" id="library" style="margin-top:18px">
+      <h2>📚 Mes blind tests</h2>
+      <form id="addQuiz" class="addq" autocomplete="off">
+        <input type="text" id="qUrl" placeholder="Lien de partage de la playlist Spotify" aria-label="Lien de la playlist Spotify">
+        <input type="text" id="qName" placeholder="Nom (ex. Années 80)" aria-label="Nom du blind test" maxlength="60">
+        <button class="btn" type="submit">➕ Ajouter</button>
+      </form>
+      <div class="err small" id="libErr"></div>
+      <div id="quizList"></div>
+      <p class="hint">Après avoir ajouté une playlist, demande à Claude : « prépare les blind tests en attente ».
+        Il crée les questions, puis le blind test passe en ✅ prêt. Tu peux le faire pendant qu'une partie est en cours.</p>
+    </section>
   </div>
 </main>
 
@@ -145,7 +170,63 @@ function apply(d) {
   clockOffset = new Date(d.server_now).getTime() - Date.now();
   renderSide();
   renderStage();
+  renderLibrary();
   BTSpotify.onState(d);
+}
+
+// ---------- Bibliothèque de blind tests ----------
+const LIB_ERRORS = {
+  BAD_URL: "Ce n'est pas un lien de playlist Spotify (il doit contenir open.spotify.com/playlist/…).",
+  GAME_RUNNING: "Une partie est en cours : clôture-la (ou attends la fin) avant de changer de blind test.",
+  QUIZ_NOT_READY: "Ce blind test n'est pas encore prêt.",
+  QUIZ_ACTIVE: "Impossible de supprimer le blind test de la partie en cours.",
+};
+let libKey = "";
+
+async function libCall(fn, args) {
+  $("libErr").textContent = "";
+  const { data, error } = await quizDb.rpc(fn, { p_pin: pin, ...args });
+  if (error) {
+    const m = error.message || "";
+    $("libErr").textContent = Object.entries(LIB_ERRORS).find(([k]) => m.includes(k))?.[1] || "Oups : " + m;
+    return null;
+  }
+  stageKey = ""; libKey = "";
+  apply(data);
+  return data;
+}
+
+$("addQuiz").onsubmit = async (e) => {
+  e.preventDefault();
+  const url = $("qUrl").value.trim();
+  if (!url) { $("libErr").textContent = "Colle d'abord le lien de partage de la playlist."; return; }
+  if (await libCall("admin_add_quiz", { p_url: url, p_name: $("qName").value.trim() })) { $("qUrl").value = ""; $("qName").value = ""; }
+};
+
+function renderLibrary() {
+  const canSwitch = st.status === "lobby" || st.status === "finished";
+  const key = JSON.stringify([st.quizzes, st.quiz_id, canSwitch]);
+  if (key === libKey) return;
+  libKey = key;
+  const fmt = (d) => d ? new Date(d).toLocaleDateString("fr-BE", { day: "numeric", month: "short", year: "numeric" }) : "";
+  $("quizList").innerHTML = st.quizzes.map((z) => {
+    const active = z.id === st.quiz_id, ready = z.status === "ready" && z.questions > 0;
+    return `<div class="qrow ${active ? "active" : ""}">
+      <div class="qn"><b>${esc(z.name)}</b>
+        <div class="small muted">${ready ? `${z.questions} questions` : "en attente de préparation"}
+          · ${z.play_count ? `joué ${z.play_count} fois, dernière fois le ${fmt(z.last_played_at)}` : "jamais joué"}
+          · <a href="${esc(z.playlist_url)}" target="_blank" rel="noopener">playlist</a></div></div>
+      <span class="pill ${ready ? "ok" : "wait"}">${ready ? "✅ prêt" : "⏳ à préparer par Claude"}</span>
+      <div class="acts">
+        ${active ? `<span class="pill" style="color:var(--accent2)">★ partie actuelle</span>`
+          : `${ready ? `<button class="btn green" data-pick="${z.id}" ${canSwitch ? "" : "disabled title='Possible à l’accueil ou une fois la partie terminée'"}>Choisir</button>` : ""}
+             <button class="btn ghost" data-del="${z.id}" data-name="${esc(z.name)}" title="Supprimer">🗑</button>`}
+      </div></div>`;
+  }).join("");
+  $("quizList").querySelectorAll("[data-pick]").forEach((b) => b.onclick = () =>
+    confirm("Passer à ce blind test ? Les scores repartent à zéro, les joueurs restent inscrits.") && libCall("admin_select_quiz", { p_quiz_id: +b.dataset.pick }));
+  $("quizList").querySelectorAll("[data-del]").forEach((b) => b.onclick = () =>
+    confirm(`Supprimer définitivement « ${b.dataset.name} » et ses questions ?`) && libCall("admin_delete_quiz", { p_quiz_id: +b.dataset.del }));
 }
 
 function renderSide() {
@@ -191,7 +272,7 @@ function renderStage() {
       <p class="small muted" style="margin-top:14px">Adresse des invités : <b style="color:var(--accent2)">${esc(playerUrl)}</b></p>
       ${isLocalUrl ? `<p class="err small">⚠️ Adresse locale : les téléphones ne pourront pas l'ouvrir tant que l'appli n'est pas en ligne.</p>` : ""}
       ${trackBox(s.next_question, "Première chanson à lancer (visible par toi seul)", "next")}
-      <p class="muted small">${s.total_q} chansons prêtes. Quand tout le monde est inscrit, lance le quiz puis la musique.</p>
+      <p class="muted small">Blind test choisi : <b style="color:var(--text)">${esc(s.quizzes.find((z) => z.id === s.quiz_id)?.name || "")}</b> — ${s.total_q} chansons (change-le dans « Mes blind tests » plus bas). Quand tout le monde est inscrit, lance le quiz puis la musique.</p>
       <div class="controls"><button class="btn green" id="go">🚀 Démarrer le quiz</button></div>`;
     $("go").onclick = () => act("start");
     return;

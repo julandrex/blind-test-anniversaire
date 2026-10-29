@@ -168,9 +168,12 @@ window.BTSpotify = (() => {
     return out.length ? out : null;
   }
 
-  // Une seule recherche par chanson (la promesse est mise en cache ; oubliée en cas d'échec réseau).
+  // Une seule recherche par chanson (la promesse est mise en cache ; en cas d'échec réseau, nouvel essai après 20 s).
   function fetchLyrics(q) {
-    if (!lyricsCache[q.id]) lyricsCache[q.id] = searchLyrics(q).then((res) => { if (!res.found) delete lyricsCache[q.id]; return res; });
+    if (!lyricsCache[q.id]) lyricsCache[q.id] = searchLyrics(q).then((res) => {
+      if (!res.found) setTimeout(() => delete lyricsCache[q.id], 20000);
+      return res;
+    });
     return lyricsCache[q.id];
   }
 
@@ -201,8 +204,9 @@ window.BTSpotify = (() => {
     if ((s.status === "question" || s.status === "reveal") && s.question) {
       fetchLyrics(s.question); // préchargement
       if (s.status === "reveal" && lyricsQid !== s.current_q) {
-        lyricsQid = s.current_q;
-        fetchLyrics(s.question).then((l) => { if (lyricsQid === l.qid) { lyricsCur = l; send(l); renderStatus(); } });
+        // L'écran TV repère la question par sa position (current_q), pas par l'id de la question.
+        const pos = lyricsQid = s.current_q;
+        fetchLyrics(s.question).then((l) => { if (lyricsQid === pos) { lyricsCur = { ...l, qid: pos }; send(lyricsCur); renderStatus(); } });
       }
     }
     if (s.status !== "reveal") { lyricsQid = null; lyricsCur = null; }
