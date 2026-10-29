@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Blind Test – Animateur</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  header h1 { font-size: 1.5rem; margin: 0; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+  .track { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+           padding: 14px 16px; border-radius: 12px; background: #0f2a1a; border: 1px solid #1db95455; margin: 12px 0; }
+  .track .t { font-size: 1.25rem; font-weight: 800; }
+  .track .a { color: #9ee8b9; }
+  .track.next { background: var(--bg2); border-color: var(--line); }
+  .track.next .a { color: var(--muted); }
+  .choice { min-height: 56px; cursor: default; }
+  .choice .count { margin-left: auto; font-size: 1.3rem; font-variant-numeric: tabular-nums; }
+  .choice.good::after { content: none; }
+  .choice.good .shape { background: #fff; color: #062615; }
+  .big-num { font-size: 2.6rem; font-weight: 800; line-height: 1; }
+  .kpis { display: flex; gap: 28px; flex-wrap: wrap; margin: 6px 0 4px; }
+  .players { display: flex; flex-wrap: wrap; gap: 6px; }
+  .players span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 6px 5px 12px; border-radius: 99px; background: var(--bg2);
+                  border: 1px solid var(--line); font-size: .9rem; }
+  .players span.done { border-color: var(--ok); }
+  .players button { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 1rem; padding: 0 6px; }
+  .players button:hover { color: var(--ko); }
+  .side h3 { font-size: 1.05rem; }
+  .lb li { padding: 8px 12px; }
+  #login { max-width: 380px; margin: 12vh auto; }
+  .hint { font-size: .8rem; color: var(--muted); margin-top: 10px; }
+  kbd { background: rgba(0,0,0,.18); color: inherit; border: 1px solid rgba(255,255,255,.25); border-radius: 6px; padding: 1px 6px; font-family: inherit; font-size: .8rem; }
+</style>
+</head>
+<body>
+<main>
+  <form id="login" class="card" hidden>
+    <h2>🎛️ Espace animateur</h2>
+    <p class="muted">Entre le code PIN pour piloter le quiz.</p>
+    <input type="password" id="pin" inputmode="numeric" placeholder="Code PIN" aria-label="Code PIN" autofocus>
+    <div class="err" id="loginErr"></div>
+    <button class="btn block" type="submit">Entrer</button>
+  </form>
+
+  <div id="dash" hidden>
+    <header>
+      <h1 class="brand">🎛️ Blind <span>Test</span> — Animateur</h1>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ghost small" id="btnReplay" title="Garde les joueurs, remet les scores à zéro">↺ Rejouer</button>
+        <button class="btn ghost small" id="btnReset" title="Supprime joueurs et scores">🗑 Nouvelle partie</button>
+        <button class="btn ghost small" id="btnLogout">Déconnexion</button>
+      </div>
+    </header>
+    <div class="grid">
+      <section class="card" id="stage"></section>
+      <aside class="card side">
+        <div class="kpis">
+          <div><div class="big-num" id="kPlayers">0</div><div class="small muted">joueurs</div></div>
+          <div><div class="big-num" id="kAnswers">–</div><div class="small muted">ont répondu</div></div>
+        </div>
+        <h3 style="margin-top:16px">Classement</h3>
+        <ol class="lb" id="lb"></ol>
+        <h3 style="margin-top:18px">Joueurs</h3>
+        <div class="players" id="players"></div>
+        <p class="hint">Clic sur ✕ pour retirer un joueur (nom inapproprié, doublon…).</p>
+      </aside>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script>
+const PIN_KEY = "blindtest_admin_pin";
+const SHAPES = ["▲", "◆", "●", "■"];
+let pin = (() => { try { return localStorage.getItem(PIN_KEY); } catch { return null; } })();
+let st = null, clockOffset = 0, busy = false, stageKey = "", timerHandle = null;
+
+const $ = (id) => document.getElementById(id);
+
+async function call(fn, args) {
+  const { data, error } = await quizDb.rpc(fn, { p_pin: pin, ...args });
+  if (error) {
+    if ((error.message || "").includes("BAD_PIN")) { logout("Code PIN incorrect."); return null; }
+    console.warn(error); return null;
+  }
+  return data;
+}
+
+function logout(msg) {
+  pin = null; try { localStorage.removeItem(PIN_KEY); } catch {}
+  $("dash").hidden = true; $("login").hidden = false; $("loginErr").textContent = msg || "";
+}
+
+$("login").onsubmit = async (e) => {
+  e.preventDefault();
+  pin = $("pin").value.trim();
+  const data = await call("admin_state");
+  if (!data) return;
+  try { localStorage.setItem(PIN_KEY, pin); } catch {}
+  start(data);
+};
+$("btnLogout").onclick = () => logout();
+$("btnReset").onclick = () => confirm("Nouvelle partie : supprimer TOUS les joueurs et les scores ?") && act("reset");
+$("btnReplay").onclick = () => confirm("Rejouer : garder les joueurs mais remettre les scores à zéro et revenir à l'accueil ?") && act("replay");
+
+let started = false;
+function start(data) {
+  $("login").hidden = true; $("dash").hidden = false;
+  apply(data);
+  if (!started) { started = true; watchGame(refresh, 1500); }
+}
+
+async function refresh() { if (!pin || busy) return; const d = await call("admin_state"); if (d) apply(d); }
+
+async function act(action) {
+  if (busy) return;
+  busy = true;
+  document.querySelectorAll("#stage .btn").forEach((b) => b.disabled = true);
+  const d = await call("admin_action", { p_action: action });
+  busy = false;
+  if (d) { stageKey = ""; apply(d); } else refresh();
+}
+
+async function kick(id, name) {
+  if (!confirm(`Retirer « ${name} » du quiz ?`)) return;
+  const d = await call("admin_kick", { p_player_id: id });
+  if (d) apply(d);
+}
+
+function apply(d) {
+  st = d;
+  clockOffset = new Date(d.server_now).getTime() - Date.now();
+  renderSide();
+  renderStage();
+}
+
+function renderSide() {
+  const inQ = st.status === "question" || st.status === "reveal";
+  $("kPlayers").textContent = st.players.length;
+  $("kAnswers").textContent = inQ ? `${st.answers_count}/${st.players.length}` : "–";
+  $("lb").innerHTML = st.leaderboard.slice(0, 15).map((p) =>
+    `<li><span class="rk">${p.rank}</span><span class="nm">${esc(p.name)}</span><span class="small muted">${p.good} ✓</span><span class="sc">${p.score}</span></li>`
+  ).join("") || `<li class="muted small">Personne pour l'instant</li>`;
+  $("players").innerHTML = st.players.map((p) =>
+    `<span class="${inQ && p.answered ? "done" : ""}">${esc(p.name)}<button data-id="${p.id}" data-name="${esc(p.name)}" aria-label="Retirer ${esc(p.name)}">✕</button></span>`
+  ).join("") || `<span class="muted small" style="border:0;background:none">En attente des inscriptions…</span>`;
+  $("players").querySelectorAll("button").forEach((b) => b.onclick = () => kick(b.dataset.id, b.dataset.name));
+}
+
+function trackBox(q, label, cls) {
+  if (!q) return "";
+  const id = q.spotify_url.split("/").pop();
+  return `<div class="track ${cls || ""}">
+    <div><div class="small muted">${label}</div><div class="t">${esc(q.track_title)}</div><div class="a">${esc(q.track_artist)}</div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <a class="btn spotify" href="spotify:track:${id}">▶ Appli Spotify</a>
+      <a class="btn ghost" href="${q.spotify_url}" target="_blank" rel="noopener">Web</a>
+    </div></div>`;
+}
+
+function renderStage() {
+  const s = st, q = s.question;
+  // Le bloc principal n'est reconstruit que lorsqu'il change (les compteurs se mettent à jour à part).
+  const key = JSON.stringify([s.status, s.current_q]);
+  if (key === stageKey) { updateCounts(); return; }
+  stageKey = key;
+  clearInterval(timerHandle);
+  const stage = $("stage");
+
+  if (s.status === "lobby") {
+    stage.innerHTML = `
+      <span class="pill">Accueil</span>
+      <h2 style="margin-top:14px">📺 Affiche l'écran TV pour les invités</h2>
+      <p class="muted">Cette page-ci montre les réponses : garde-la sur ton ordinateur. Ouvre l'écran TV (QR code, questions sans réponse, podium)
+        et glisse sa fenêtre sur la télé ou le projecteur (Windows + P → <b>Étendre</b>, puis F11 pour le plein écran).</p>
+      <div class="controls" style="margin-top:8px"><a class="btn yellow" href="ecran.html" target="blindtest_tv">📺 Ouvrir l'écran TV</a></div>
+      <p class="small muted" style="margin-top:14px">Adresse des invités : <b style="color:var(--accent2)">${esc(playerUrl)}</b></p>
+      ${isLocalUrl ? `<p class="err small">⚠️ Adresse locale : les téléphones ne pourront pas l'ouvrir tant que l'appli n'est pas en ligne.</p>` : ""}
+      ${trackBox(s.next_question, "Première chanson à lancer (visible par toi seul)", "next")}
+      <p class="muted small">${s.total_q} chansons prêtes. Quand tout le monde est inscrit, lance le quiz puis la musique.</p>
+      <div class="controls"><button class="btn green" id="go">🚀 Démarrer le quiz</button></div>`;
+    $("go").onclick = () => act("start");
+    return;
+  }
+
+  if (s.status === "finished") {
+    const lb = s.leaderboard, top = [lb[1], lb[0], lb[2]];
+    stage.innerHTML = `
+      <span class="pill">Terminé</span>
+      <h2 class="center" style="font-size:2.2rem;margin-top:10px">🏆 Classement final</h2>
+      <div class="podium" style="max-width:620px;margin:20px auto 28px">${top.map((p, k) => p ? `
+        <div class="step p${[2, 1, 3][k]}"><div class="who" style="font-size:1.2rem">${esc(p.name)}</div><div class="pts">${p.score} pts · ${p.good} ✓</div>
+        <div class="block">${["🥈", "🥇", "🥉"][k]}</div></div>` : "<div></div>").join("")}</div>
+      <ol class="lb" style="max-width:620px;margin:0 auto">${lb.slice(3).map((p) =>
+        `<li><span class="rk">${p.rank}</span><span class="nm">${esc(p.name)}</span><span class="small muted">${p.good} ✓</span><span class="sc">${p.score}</span></li>`).join("")}</ol>
+      <p class="center muted" style="margin-top:20px">Fin du quiz après ${s.current_q} question${s.current_q > 1 ? "s" : ""}. Bon anniversaire ! 🎂</p>`;
+    return;
+  }
+
+  // question ou reveal
+  const reveal = s.status === "reveal";
+  const last = s.current_q >= s.total_q;
+  stage.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <span class="pill">Question ${s.current_q} / ${s.total_q} · ${reveal ? "réponse révélée" : "en cours"}</span>
+      <span class="small muted" id="elapsed"></span>
+    </div>
+    ${trackBox(q, reveal ? "Chanson" : "▶ À lancer maintenant sur Spotify")}
+    <h2>${q.kind === "artist" ? "🎤 Qui chante ?" : "🎶 Quel est le titre ?"}</h2>
+    <div class="choices" id="choices" style="grid-template-columns:1fr 1fr">${q.choices.map((c, i) => `
+      <div class="choice c${i} ${i === q.correct_index ? "good" : (reveal ? "dim" : "")}">
+        <span class="shape">${i === q.correct_index ? "✓" : SHAPES[i]}</span><span>${esc(c)}</span><span class="count" data-c="${i}"></span>
+      </div>`).join("")}</div>
+    <p class="hint">La bonne réponse est cochée ✓ (visible uniquement ici). Les compteurs indiquent combien de joueurs ont choisi chaque réponse.</p>
+    <div class="controls">
+      ${reveal ? "" : `<button class="btn yellow" id="reveal">👀 Révéler la réponse <kbd>R</kbd></button>`}
+      <button class="btn ${reveal ? "green" : "ghost"}" id="next">${last ? "🏁 Voir le classement final" : "⏭ Question suivante"} <kbd>N</kbd></button>
+      <button class="btn red" id="finish" style="margin-left:auto">⏹ Clôturer le quiz</button>
+    </div>
+    ${last ? "" : trackBox(s.next_question, "Chanson suivante", "next")}`;
+  if (!reveal) $("reveal").onclick = () => act("reveal");
+  $("next").onclick = () => act("next");
+  $("finish").onclick = () => confirm("Clôturer le quiz maintenant et afficher le classement final ?") && act("finish");
+  updateCounts();
+  if (!reveal) { tick(); timerHandle = setInterval(tick, 500); }
+}
+
+function updateCounts() {
+  if (!st.answers_by_choice) return;
+  document.querySelectorAll("#choices .count").forEach((el) => el.textContent = st.answers_by_choice[+el.dataset.c]);
+}
+
+function tick() {
+  const el = $("elapsed"); if (!el || !st.q_started_at) return;
+  const secs = Math.floor((Date.now() + clockOffset - new Date(st.q_started_at).getTime()) / 1000);
+  el.textContent = `⏱ ${Math.max(0, secs)} s`;
+}
+
+// Raccourcis clavier : R = révéler, N = suivante
+document.addEventListener("keydown", (e) => {
+  if (!st || e.target.tagName === "INPUT" || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "r" && st.status === "question") act("reveal");
+  if (k === "n" && (st.status === "question" || st.status === "reveal")) act("next");
+});
+
+if (pin) call("admin_state").then((d) => d ? start(d) : logout()); else logout();
+</script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Blind Test – Écran</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  /* Page à projeter sur la TV : jamais de titre de chanson ni de bonne réponse avant la révélation. */
+  html { font-size: clamp(14px, 1.35vw, 26px); }
+  main { min-height: 100vh; display: flex; flex-direction: column; padding: 2.2rem 3rem; }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+  header .brand { font-size: 1.6rem; }
+  #view { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+  .lobby { display: grid; grid-template-columns: auto 1fr; gap: 3rem; align-items: center; }
+  #qr { background: #fff; padding: 1.2rem; border-radius: 1.2rem; width: 22rem; height: 22rem; }
+  #qr svg { width: 100%; height: 100%; display: block; }
+  .lobby h1 { font-size: 3.2rem; }
+  .url { font-size: 1.6rem; font-weight: 800; color: var(--accent2); word-break: break-all; margin: .6rem 0 1.4rem; }
+  .warn { background: #5a1a1a; border: 1px solid var(--ko); border-radius: 12px; padding: .8rem 1rem; font-size: 1rem; }
+  .count { font-size: 1.4rem; }
+  .count b { font-size: 3rem; color: var(--accent2); }
+  .ask { font-size: 3.4rem; font-weight: 800; text-align: center; margin: .5rem 0 1.8rem; }
+  .choices { grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+  .choice { min-height: 7rem; font-size: 1.9rem; padding: 1.2rem 1.6rem; cursor: default; }
+  .choice .shape { width: 3rem; height: 3rem; font-size: 1.4rem; }
+  .choice .n { margin-left: auto; font-size: 1.5rem; opacity: .9; }
+  .choice.good::after { margin-left: 1rem; font-size: 2.4rem; }
+  .bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 1.6rem; font-size: 1.3rem; }
+  .timer { height: 12px; margin-top: 1.4rem; }
+  .top5 { margin-top: 1.6rem; }
+  .top5 .lb li { font-size: 1.3rem; }
+  .podium { max-width: 60rem; margin: 1rem auto 2rem; width: 100%; }
+  .podium .who { font-size: 1.8rem; }
+  .podium .pts { font-size: 1.2rem; }
+  .podium .p1 .block { height: 16rem; } .podium .p2 .block { height: 11rem; } .podium .p3 .block { height: 8rem; }
+  .podium .block { font-size: 4rem; }
+  .rest { max-width: 60rem; margin: 0 auto; width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: .6rem 1.2rem; }
+  .rest li { font-size: 1.2rem; }
+  @media (max-width: 800px) { .lobby { grid-template-columns: 1fr; justify-items: center; text-align: center; } main { padding: 1.2rem 16px; } }
+</style>
+</head>
+<body>
+<main>
+  <header><div class="brand">🎵 Blind <span>Test</span> d'anniversaire</div><span class="pill" id="badge"></span></header>
+  <div id="view"><p class="center muted">Chargement…</p></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script src="config.js"></script>
+<script>
+const SHAPES = ["▲", "◆", "●", "■"];
+const view = document.getElementById("view");
+let st = null, clockOffset = 0, key = "", timer = null;
+
+async function refresh() {
+  const { data, error } = await quizDb.rpc("get_state", { p_player_id: null, p_token: null });
+  if (error) return;
+  st = data;
+  clockOffset = new Date(data.server_now).getTime() - Date.now();
+  render();
+}
+
+function render() {
+  const k = JSON.stringify([st.status, st.current_q, st.leaderboard?.length]);
+  document.getElementById("badge").textContent =
+    st.status === "lobby" ? "Inscriptions ouvertes" : st.status === "finished" ? "Terminé" : `Question ${st.current_q} / ${st.total_q}`;
+  if (k === key) return updateLive();
+  key = k;
+  clearInterval(timer);
+  if (st.status === "lobby") return renderLobby();
+  if (st.status === "finished") return renderFinished();
+  renderQuestion();
+}
+
+function updateLive() {
+  const c = document.getElementById("cnt"); if (c) c.textContent = st.status === "lobby" ? st.players_count : `${st.answers_count} / ${st.players_count}`;
+}
+
+function renderLobby() {
+  view.innerHTML = `
+    <div class="lobby pop">
+      <div id="qr"></div>
+      <div>
+        <h1>Scanne pour jouer ! 📱</h1>
+        <p class="muted" style="font-size:1.2rem">ou va sur</p>
+        <div class="url">${esc(playerUrl)}</div>
+        ${isLocalUrl ? `<div class="warn">⚠️ Cette adresse est locale à l'ordinateur : les téléphones ne pourront pas l'ouvrir. Il faut d'abord mettre l'appli en ligne.</div>` : ""}
+        <p class="count"><b id="cnt">${st.players_count}</b> joueur(s) inscrit(s)</p>
+      </div>
+    </div>`;
+  const qr = qrcode(0, "M"); qr.addData(playerUrl); qr.make();
+  document.getElementById("qr").innerHTML = qr.createSvgTag({ scalable: true, margin: 0 });
+}
+
+function renderQuestion() {
+  const q = st.question, reveal = st.status === "reveal";
+  view.innerHTML = `
+    <div class="pop">
+      <div class="ask">${q.kind === "artist" ? "🎤 Qui chante ?" : "🎶 Quel est le titre ?"}</div>
+      <div class="choices">${q.choices.map((c, i) => `
+        <div class="choice c${i} ${reveal ? (i === st.correct_index ? "good" : "dim") : ""}">
+          <span class="shape">${SHAPES[i]}</span><span>${esc(c)}</span></div>`).join("")}</div>
+      ${reveal ? `<div class="top5"><h2>Top 5</h2><ol class="lb">${(st.top || []).map((p) =>
+          `<li><span class="rk">${p.rank}</span><span class="nm">${esc(p.name)}</span><span class="sc">${p.score}</span></li>`).join("")}</ol></div>`
+        : `<div class="timer"><div id="bar" style="width:100%"></div></div>
+           <div class="bottom"><span class="muted">Réponds sur ton téléphone !</span><span>✋ <b id="cnt">${st.answers_count} / ${st.players_count}</b> ont répondu</span></div>`}
+    </div>`;
+  if (!reveal) { tick(); timer = setInterval(tick, 250); }
+}
+
+function tick() {
+  const bar = document.getElementById("bar"); if (!bar || !st.q_started_at) return;
+  const secs = (Date.now() + clockOffset - new Date(st.q_started_at).getTime()) / 1000;
+  bar.style.width = Math.max(0, 1 - secs / QUIZ_CONFIG.bonusSeconds) * 100 + "%";
+}
+
+function renderFinished() {
+  const lb = st.leaderboard || [], top = [lb[1], lb[0], lb[2]];
+  view.innerHTML = `
+    <div class="pop">
+      <h1 class="center" style="font-size:3.4rem">🏆 Classement final</h1>
+      <div class="podium">${top.map((p, k) => p ? `
+        <div class="step p${[2, 1, 3][k]}"><div class="who">${esc(p.name)}</div><div class="pts">${p.score} pts · ${p.good} ✓</div>
+        <div class="block">${["🥈", "🥇", "🥉"][k]}</div></div>` : "<div></div>").join("")}</div>
+      <ol class="lb rest">${lb.slice(3, 23).map((p) =>
+        `<li><span class="rk">${p.rank}</span><span class="nm">${esc(p.name)}</span><span class="sc">${p.score}</span></li>`).join("")}</ol>
+    </div>`;
+}
+
+watchGame(refresh, 1500);
+</script>
+</body>
+</html>

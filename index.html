@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#120a24">
+<title>Blind Test Anniversaire</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  main { max-width: 520px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  header .who { font-size: .9rem; color: var(--muted); max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hero { text-align: center; padding: 30px 0 10px; }
+  .hero .disc { font-size: 64px; display: inline-block; animation: spin 6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .hero .disc { animation: none; } }
+  .qhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .ask { font-size: 1.6rem; font-weight: 800; margin: 6px 0 14px; }
+  .status { margin-top: 16px; text-align: center; font-weight: 600; min-height: 1.5em; }
+  .result { text-align: center; padding: 18px; margin-bottom: 16px; }
+  .result .big { font-size: 1.6rem; font-weight: 800; }
+  .result.ok { border-color: var(--ok); } .result.ko { border-color: var(--ko); }
+  .stats { display: flex; justify-content: center; gap: 24px; margin-top: 8px; }
+  .stats b { display: block; font-size: 1.4rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand">🎵 Blind <span>Test</span></div>
+    <div class="who" id="who"></div>
+  </header>
+  <div id="app"><p class="center muted">Chargement…</p></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script>
+const KEY = "blindtest_player";
+const app = document.getElementById("app");
+let me = load();
+let state = null;
+let clockOffset = 0;         // serveur - client (ms)
+let sending = false;
+let lastRenderKey = "";
+let timerHandle = null;
+
+function load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; } }
+function save(v) { try { v ? localStorage.setItem(KEY, JSON.stringify(v)) : localStorage.removeItem(KEY); } catch {} }
+
+const SHAPES = ["▲", "◆", "●", "■"];
+const ERRORS = {
+  NAME_TAKEN: "Ce nom est déjà pris, choisis-en un autre 🙂",
+  NAME_INVALID: "Entre un nom de 1 à 20 caractères.",
+  GAME_FINISHED: "Le quiz est déjà terminé.",
+  TOO_LATE: "Trop tard, la réponse est déjà révélée !",
+};
+const errMsg = (e) => { const m = e?.message || ""; for (const k in ERRORS) if (m.includes(k)) return ERRORS[k]; return "Oups, problème de connexion. Réessaie."; };
+
+async function refresh() {
+  const { data, error } = await quizDb.rpc("get_state", { p_player_id: me?.player_id ?? null, p_token: me?.token ?? null });
+  if (error) return;
+  state = data;
+  clockOffset = new Date(data.server_now).getTime() - Date.now();
+  if (me && !data.player) { me = null; save(null); } // partie réinitialisée ou joueur retiré
+  render();
+}
+
+function render() {
+  const s = state;
+  document.getElementById("who").textContent = me ? "👤 " + me.name : "";
+  // On évite de reconstruire l'écran (et de perdre la saisie) si rien n'a changé.
+  const key = me
+    ? JSON.stringify([s.status, s.current_q, s.my_choice, s.correct_index, s.players_count, s.me?.score, s.leaderboard?.length])
+    : JSON.stringify(["join", s.status === "lobby", s.status === "finished", s.leaderboard?.length]);
+  if (key === lastRenderKey) return;
+  lastRenderKey = key;
+  clearInterval(timerHandle);
+
+  if (!me) return s.status === "finished" ? renderFinished() : renderJoin();
+  if (s.status === "lobby") return renderLobby();
+  if (s.status === "question") return renderQuestion();
+  if (s.status === "reveal") return renderReveal();
+  if (s.status === "finished") return renderFinished();
+}
+
+function renderJoin() {
+  const late = state.status !== "lobby";
+  app.innerHTML = `
+    <div class="hero"><div class="disc">💿</div>
+      <h1>Bienvenue au blind test !</h1>
+      <p class="muted">Entre ton prénom ou ton pseudo pour participer.${late ? "<br><b>Le quiz a déjà commencé</b> — tu peux encore nous rejoindre." : ""}</p>
+    </div>
+    <form class="card" id="join" autocomplete="off">
+      <input type="text" id="name" maxlength="20" placeholder="Ton nom" aria-label="Ton nom" autofocus>
+      <div class="err" id="err"></div>
+      <button class="btn block" type="submit">C'est parti 🎉</button>
+    </form>`;
+  document.getElementById("join").onsubmit = async (e) => {
+    e.preventDefault();
+    const name = document.getElementById("name").value.trim();
+    const err = document.getElementById("err");
+    if (!name) { err.textContent = ERRORS.NAME_INVALID; return; }
+    const btn = e.target.querySelector("button"); btn.disabled = true;
+    const { data, error } = await quizDb.rpc("join_game", { p_name: name });
+    btn.disabled = false;
+    if (error) { err.textContent = errMsg(error); return; }
+    me = data; save(me); lastRenderKey = ""; refresh();
+  };
+}
+
+function renderLobby() {
+  app.innerHTML = `
+    <div class="hero pop"><div class="disc">💿</div>
+      <h1>C'est noté, ${esc(me.name)} !</h1>
+      <p class="muted">Le quiz va bientôt commencer.<br>Garde cette page ouverte 📱</p>
+      <p><span class="pill">${state.players_count} joueur${state.players_count > 1 ? "s" : ""} inscrit${state.players_count > 1 ? "s" : ""}</span></p>
+    </div>
+    <div class="card small muted">
+      <b style="color:var(--text)">Règles :</b> une chanson passe, tu choisis parmi 4 réponses
+      (parfois l'artiste, parfois le titre). Une seule réponse possible, pas de retour en arrière !
+      Bonne réponse = 500 pts + jusqu'à 500 pts de bonus si tu es rapide.
+    </div>`;
+}
+
+function questionHeader() {
+  const q = state.question;
+  return `
+    <div class="qhead"><span class="pill">Question ${state.current_q} / ${state.total_q}</span>
+      <span class="small muted" id="elapsed"></span></div>
+    <div class="ask">${q.kind === "artist" ? "🎤 Qui chante ?" : "🎶 Quel est le titre ?"}</div>`;
+}
+
+function choicesHtml(opts) {
+  return `<div class="choices">${state.question.choices.map((c, i) => {
+    const cls = ["choice", "c" + i];
+    if (opts.picked === i) cls.push("picked");
+    if (opts.correct != null) cls.push(i === opts.correct ? "good" : (opts.picked === i ? "bad" : "dim"));
+    else if (opts.picked != null && opts.picked !== i) cls.push("dim");
+    return `<button class="${cls.join(" ")}" data-i="${i}" ${opts.disabled ? "disabled" : ""}><span class="shape">${SHAPES[i]}</span><span>${esc(c)}</span></button>`;
+  }).join("")}</div>`;
+}
+
+function renderQuestion() {
+  const answered = state.my_choice != null;
+  app.innerHTML = `
+    <div class="pop">
+      ${questionHeader()}
+      <div class="timer" style="margin-bottom:16px"><div id="bar" style="width:100%"></div></div>
+      ${choicesHtml({ picked: state.my_choice, disabled: answered })}
+      <div class="status" id="status">${answered ? "✅ Réponse enregistrée ! On attend les autres…" : "Écoute bien… et choisis vite !"}</div>
+    </div>`;
+  if (!answered) {
+    app.querySelectorAll(".choice").forEach((b) => b.onclick = () => answer(+b.dataset.i));
+  }
+  tickTimer(answered);
+  timerHandle = setInterval(() => tickTimer(answered), 250);
+}
+
+function tickTimer(frozen) {
+  const bar = document.getElementById("bar"), el = document.getElementById("elapsed");
+  if (!bar || !state.q_started_at) return;
+  const secs = Math.max(0, (Date.now() + clockOffset - new Date(state.q_started_at).getTime()) / 1000);
+  const left = Math.max(0, 1 - secs / QUIZ_CONFIG.bonusSeconds);
+  if (frozen) { el.textContent = ""; return; }
+  bar.style.width = (left * 100) + "%";
+  el.textContent =left > 0 ? `Bonus rapidité : ${Math.round(left * 500)} pts` : "Plus de bonus, mais il est encore temps !";
+}
+
+async function answer(i) {
+  if (sending) return;
+  sending = true;
+  // Retour visuel immédiat
+  app.querySelectorAll(".choice").forEach((b) => { b.disabled = true; b.classList.toggle("picked", +b.dataset.i === i); b.classList.toggle("dim", +b.dataset.i !== i); });
+  document.getElementById("status").textContent = "Envoi…";
+  const { error } = await quizDb.rpc("submit_answer", { p_player_id: me.player_id, p_token: me.token, p_choice: i });
+  sending = false;
+  if (error) { document.getElementById("status").textContent = errMsg(error); lastRenderKey = ""; }
+  refresh();
+}
+
+function renderReveal() {
+  const pts = state.my_points ?? 0, picked = state.my_choice;
+  const ok = picked != null && picked === state.correct_index;
+  const head = picked == null ? "😶 Pas de réponse" : ok ? "🎉 Bonne réponse !" : "😬 Raté !";
+  app.innerHTML = `
+    <div class="pop">
+      <div class="card result ${ok ? "ok" : "ko"}">
+        <div class="big">${head}</div>
+        ${ok ? `<div style="font-size:1.3rem;font-weight:700;color:var(--accent2)">+${pts} pts</div>` : ""}
+        <div class="stats">
+          <div><b>${state.me?.score ?? 0}</b><span class="small muted">points</span></div>
+          <div><b>${state.me ? state.me.rank + "<sup>e</sup>" : "–"}</b><span class="small muted">sur ${state.players_count}</span></div>
+        </div>
+      </div>
+      ${questionHeader()}
+      ${choicesHtml({ picked, correct: state.correct_index, disabled: true })}
+      <div class="status muted">Prochaine chanson dans un instant…</div>
+    </div>`;
+}
+
+function renderFinished() {
+  const lb = state.leaderboard || [];
+  const myId = me?.player_id;
+  const top = [lb[1], lb[0], lb[2]];
+  const mine = lb.find((p) => p.id === myId);
+  app.innerHTML = `
+    <div class="pop">
+      <h1 class="center">🏆 Classement final</h1>
+      ${mine ? `<p class="center">Tu termines <b>${mine.rank}<sup>e</sup></b> avec <b>${mine.score} pts</b> (${mine.good} bonne${mine.good > 1 ? "s" : ""} réponse${mine.good > 1 ? "s" : ""}) !</p>` : ""}
+      <div class="podium">${top.map((p, k) => p ? `
+        <div class="step p${[2, 1, 3][k]}"><div class="who">${esc(p.name)}</div><div class="pts">${p.score} pts</div>
+        <div class="block">${["🥈", "🥇", "🥉"][k]}</div></div>` : "<div></div>").join("")}</div>
+      <ol class="lb">${lb.map((p) => `
+        <li class="${p.id === myId ? "me" : ""}"><span class="rk">${p.rank}</span><span class="nm">${esc(p.name)}</span>
+        <span class="small muted">${p.good} ✓</span><span class="sc">${p.score}</span></li>`).join("")}</ol>
+      <p class="center muted" style="margin-top:20px">Merci d'avoir joué ! 🎂</p>
+    </div>`;
+}
+
+watchGame(refresh, 2500);
+</script>
+</body>
+</html>
