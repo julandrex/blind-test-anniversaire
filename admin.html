@@ -62,6 +62,7 @@
     <div class="grid">
       <section class="card" id="stage"></section>
       <aside class="card side">
+        <div id="spPanel" style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line)"></div>
         <div class="kpis">
           <div><div class="big-num" id="kPlayers">0</div><div class="small muted">joueurs</div></div>
           <div><div class="big-num" id="kAnswers">–</div><div class="small muted">ont répondu</div></div>
@@ -78,6 +79,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
+<script src="spotify.js"></script>
 <script>
 const PIN_KEY = "blindtest_admin_pin";
 const SHAPES = ["▲", "◆", "●", "■"];
@@ -112,11 +114,12 @@ $("btnLogout").onclick = () => logout();
 $("btnReset").onclick = () => confirm("Nouvelle partie : supprimer TOUS les joueurs et les scores ?") && act("reset");
 $("btnReplay").onclick = () => confirm("Rejouer : garder les joueurs mais remettre les scores à zéro et revenir à l'accueil ?") && act("replay");
 
-let started = false;
+let started = false, watching = false;
 function start(data) {
   $("login").hidden = true; $("dash").hidden = false;
+  if (!started) { started = true; BTSpotify.init($("spPanel"), () => st); }
   apply(data);
-  if (!started) { started = true; watchGame(refresh, 1500); }
+  if (!watching) { watching = true; watchGame(refresh, 1500); }
 }
 
 async function refresh() { if (!pin || busy) return; const d = await call("admin_state"); if (d) apply(d); }
@@ -125,9 +128,10 @@ async function act(action) {
   if (busy) return;
   busy = true;
   document.querySelectorAll("#stage .btn").forEach((b) => b.disabled = true);
+  const prev = st;
   const d = await call("admin_action", { p_action: action });
   busy = false;
-  if (d) { stageKey = ""; apply(d); } else refresh();
+  if (d) { stageKey = ""; apply(d); BTSpotify.afterAction(prev, d); } else refresh();
 }
 
 async function kick(id, name) {
@@ -141,6 +145,7 @@ function apply(d) {
   clockOffset = new Date(d.server_now).getTime() - Date.now();
   renderSide();
   renderStage();
+  BTSpotify.onState(d);
 }
 
 function renderSide() {

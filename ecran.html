@@ -40,7 +40,26 @@
   .podium .block { font-size: 4rem; }
   .rest { max-width: 60rem; margin: 0 auto; width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: .6rem 1.2rem; }
   .rest li { font-size: 1.2rem; }
-  @media (max-width: 800px) { .lobby { grid-template-columns: 1fr; justify-items: center; text-align: center; } main { padding: 1.2rem 16px; } }
+  /* Révélation avec paroles : choix à gauche, karaoké à droite */
+  .rv { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 2.4rem; align-items: start; }
+  .rv .ask { font-size: 2.2rem; margin: 0 0 1rem; text-align: left; }
+  .rv .choices { grid-template-columns: 1fr; gap: .7rem; }
+  .rv .choice { min-height: 4.2rem; font-size: 1.35rem; padding: .7rem 1.1rem; }
+  .rv .choice .shape { width: 2.2rem; height: 2.2rem; font-size: 1rem; }
+  .rv .top5 .lb li { font-size: 1.1rem; padding: .45rem .9rem; }
+  .karaoke { background: linear-gradient(160deg, #1db95433, #0b3b2088); border: 1px solid #1db95466; border-radius: 1.4rem; padding: 1.6rem 2rem; }
+  .karaoke .kt { font-size: 2rem; font-weight: 800; line-height: 1.15; }
+  .karaoke .ka { font-size: 1.3rem; color: #9ee8b9; margin-bottom: 1.2rem; }
+  .klines { height: 24rem; overflow: hidden; position: relative;
+            mask-image: linear-gradient(transparent, #000 18%, #000 78%, transparent); -webkit-mask-image: linear-gradient(transparent, #000 18%, #000 78%, transparent); }
+  .klines .track { transition: transform .45s cubic-bezier(.2,.8,.2,1); }
+  .kl { font-size: 2.1rem; font-weight: 800; line-height: 1.25; padding: .35rem 0; color: rgba(255,255,255,.28); transition: color .3s, transform .3s; transform-origin: left center; }
+  .kl.past { color: rgba(255,255,255,.55); }
+  .kl.cur { color: #fff; transform: scale(1.04); text-shadow: 0 0 24px rgba(255,255,255,.25); }
+  .kplain { font-size: 1.4rem; line-height: 1.5; white-space: pre-line; color: rgba(255,255,255,.75); max-height: 24rem; overflow: hidden; }
+  @media (prefers-reduced-motion: reduce) { .klines .track { transition: none; } }
+  @media (max-width: 800px) {
+    .rv { grid-template-columns: 1fr; } .lobby { grid-template-columns: 1fr; justify-items: center; text-align: center; } main { padding: 1.2rem 16px; } }
 </style>
 </head>
 <body>
@@ -57,6 +76,19 @@ const SHAPES = ["▲", "◆", "●", "■"];
 const view = document.getElementById("view");
 let st = null, clockOffset = 0, key = "", timer = null;
 
+// Paroles + position de lecture envoyées par la page animateur (même navigateur).
+let lyr = null, now = null, kIdx = -2;
+const tv = "BroadcastChannel" in window ? new BroadcastChannel("blindtest-tv") : null;
+if (tv) {
+  tv.onmessage = (e) => {
+    const m = e.data || {};
+    if (m.type === "lyrics") { lyr = m; if (st) render(); }
+    if (m.type === "now") now = m;
+  };
+  tv.postMessage({ type: "hello" });
+}
+const hasLyrics = () => lyr && st && lyr.qid === st.current_q && st.status === "reveal";
+
 async function refresh() {
   const { data, error } = await quizDb.rpc("get_state", { p_player_id: null, p_token: null });
   if (error) return;
@@ -66,7 +98,7 @@ async function refresh() {
 }
 
 function render() {
-  const k = JSON.stringify([st.status, st.current_q, st.leaderboard?.length]);
+  const k = JSON.stringify([st.status, st.current_q, st.leaderboard?.length, hasLyrics()]);
   document.getElementById("badge").textContent =
     st.status === "lobby" ? "Inscriptions ouvertes" : st.status === "finished" ? "Terminé" : `Question ${st.current_q} / ${st.total_q}`;
   if (k === key) return updateLive();
@@ -99,6 +131,7 @@ function renderLobby() {
 
 function renderQuestion() {
   const q = st.question, reveal = st.status === "reveal";
+  if (reveal && hasLyrics()) return renderKaraoke();
   view.innerHTML = `
     <div class="pop">
       <div class="ask">${q.kind === "artist" ? "🎤 Qui chante ?" : "🎶 Quel est le titre ?"}</div>
@@ -111,6 +144,46 @@ function renderQuestion() {
            <div class="bottom"><span class="muted">Réponds sur ton téléphone !</span><span>✋ <b id="cnt">${st.answers_count} / ${st.players_count}</b> ont répondu</span></div>`}
     </div>`;
   if (!reveal) { tick(); timer = setInterval(tick, 250); }
+}
+
+function renderKaraoke() {
+  const q = st.question;
+  view.innerHTML = `
+    <div class="rv pop">
+      <div>
+        <div class="ask">${q.kind === "artist" ? "🎤 Qui chante ?" : "🎶 Quel est le titre ?"}</div>
+        <div class="choices">${q.choices.map((c, i) => `
+          <div class="choice c${i} ${i === st.correct_index ? "good" : "dim"}"><span class="shape">${SHAPES[i]}</span><span>${esc(c)}</span></div>`).join("")}</div>
+        <div class="top5"><h2>Top 5</h2><ol class="lb">${(st.top || []).map((p) =>
+          `<li><span class="rk">${p.rank}</span><span class="nm">${esc(p.name)}</span><span class="sc">${p.score}</span></li>`).join("")}</ol></div>
+      </div>
+      <div class="karaoke">
+        <div class="kt">${esc(lyr.title)}</div><div class="ka">${esc(lyr.artist)}</div>
+        ${lyr.lines
+          ? `<div class="klines" id="klines"><div class="track" id="ktrack">${lyr.lines.map((l) => `<div class="kl">${esc(l.text) || "♪"}</div>`).join("")}</div></div>`
+          : lyr.plain ? `<div class="kplain">${esc(lyr.plain)}</div>` : `<p class="muted">Paroles introuvables pour cette chanson 🎵</p>`}
+      </div>
+    </div>`;
+  kIdx = -2;
+  if (lyr.lines) { karaokeTick(); timer = setInterval(karaokeTick, 120); }
+}
+
+// Met en avant la ligne en cours selon la position de lecture Spotify (interpolée entre deux relevés).
+function karaokeTick() {
+  const box = document.getElementById("klines"), track = document.getElementById("ktrack");
+  if (!box || !track) return;
+  let idx = -1;
+  if (now && now.qid === st.current_q) {
+    const pos = (now.progress_ms + (now.is_playing ? Date.now() - now.at : 0)) / 1000 + 0.25;
+    for (let i = 0; i < lyr.lines.length && lyr.lines[i].t <= pos; i++) idx = i;
+  }
+  if (idx === kIdx) return;
+  kIdx = idx;
+  const rows = track.children;
+  for (let i = 0; i < rows.length; i++) rows[i].className = "kl" + (i < idx ? " past" : i === idx ? " cur" : "");
+  const ref = rows[Math.max(idx, 0)];
+  const y = ref ? ref.offsetTop - box.clientHeight * 0.38 : 0;
+  track.style.transform = `translateY(${-Math.max(0, y)}px)`;
 }
 
 function tick() {
