@@ -12,12 +12,16 @@ def lit(s):
     return "'" + str(s).replace("'", "''") + "'"
 
 rng = random.Random(quiz_id)
+# Place de la bonne réponse : autant de fois chaque case (A/B/C/D), dans un ordre aléatoire.
+slots = [i % 4 for i in range(len(items))]
+rng.shuffle(slots)
 rows = []
 for pos, q in enumerate(items, 1):
     assert q["kind"] in ("artist", "title"), q
     assert len(q["decoys"]) == 3 and q["answer"] not in q["decoys"], q
-    choices = [q["answer"]] + q["decoys"]
+    choices = list(q["decoys"])
     rng.shuffle(choices)
+    choices.insert(slots[pos - 1], q["answer"])
     rows.append("(%d,%d,%s,array[%s],%d,%s,%s,%s)" % (
         quiz_id, pos, lit(q["kind"]), ",".join(lit(c) for c in choices), choices.index(q["answer"]),
         lit(q["title"]), lit(q["artist"]), lit("https://open.spotify.com/track/" + q["track_id"])))
