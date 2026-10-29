@@ -87,20 +87,32 @@ window.BTSpotify = (() => {
   }
 
   // ---------- Lecture ----------
+  // Message lisible + détail brut de Spotify (utile pour diagnostiquer).
   function explain(e) {
-    if (e.status === 403) return "Spotify refuse la commande (un compte Premium est nécessaire).";
-    if (e.status === 404 || e.reason === "NO_ACTIVE_DEVICE") return "Aucun appareil Spotify actif : ouvre l'appli Spotify sur l'ordinateur et lance n'importe quel titre une fois.";
-    if (e.status === 429) return "Spotify demande de ralentir, réessaie dans quelques secondes.";
-    return "Spotify : " + e.message;
+    console.warn("Spotify", e.status, e.reason, e.message);
+    const raw = ` [${e.status}${e.reason ? " " + e.reason : ""} : ${e.message}]`;
+    if (e.status === 404 || e.reason === "NO_ACTIVE_DEVICE") return "Aucun appareil Spotify actif : ouvre l'appli Spotify sur l'ordinateur et lance n'importe quel titre une fois." + raw;
+    if (e.reason === "PREMIUM_REQUIRED") return "Spotify indique que ce compte n'est pas Premium." + raw;
+    if (e.status === 403 && /not registered|developer dashboard|user may not/i.test(e.message))
+      return "Ce compte Spotify n'est pas autorisé sur ton appli développeur (ajoute-le dans User Management)." + raw;
+    if (e.status === 403) return "Spotify a refusé la commande." + raw;
+    if (e.status === 429) return "Spotify demande de ralentir, réessaie dans quelques secondes." + raw;
+    return "Spotify :" + raw;
+  }
+
+  async function devices() {
+    const d = await api("GET", "/me/player/devices");
+    return (d?.devices || []).filter((x) => !x.is_restricted);
   }
 
   async function pickDevice() {
-    const d = await api("GET", "/me/player/devices");
-    const dev = d.devices.find((x) => x.is_active) || d.devices.find((x) => x.type === "Computer") || d.devices[0];
+    const list = await devices();
+    const dev = list.find((x) => x.is_active) || list.find((x) => x.type === "Computer") || list[0];
     if (dev) { device = dev.id; deviceName = dev.name; }
     return dev;
   }
 
+  // Lance un titre : 1) sur l'appareil connu, 2) sinon on (ré)active l'appareil puis on relance.
   async function play(q, positionMs = 0) {
     if (!tok || !q) return;
     const body = { uris: [uriOf(q)], position_ms: positionMs };
@@ -109,8 +121,10 @@ window.BTSpotify = (() => {
       msg = ""; playing = true;
     } catch (e) {
       try {
-        if (e.status !== 404 && e.reason !== "NO_ACTIVE_DEVICE") throw e;
-        if (!(await pickDevice())) throw e;
+        if (e.status !== 404 && e.status !== 403 && e.status !== 502) throw e;
+        if (!(await pickDevice())) throw Object.assign(new Error("aucun appareil"), { status: 404, reason: "NO_ACTIVE_DEVICE" });
+        await api("PUT", "/me/player", { device_ids: [device], play: false });
+        await sleep(600);
         await api("PUT", "/me/player/play?device_id=" + device, body);
         msg = ""; playing = true;
       } catch (e2) { msg = explain(e2); }
@@ -118,13 +132,15 @@ window.BTSpotify = (() => {
     render();
   }
 
-  async function pause() {
-    try { await api("PUT", "/me/player/pause"); playing = false; msg = ""; } catch (e) { msg = explain(e); }
-    render();
-  }
-
-  async function resume() {
-    try { await api("PUT", "/me/player/play" + (device ? "?device_id=" + device : "")); playing = true; msg = ""; } catch (e) { msg = explain(e); }
+  // Pause / reprise selon l'état réel du lecteur (évite les refus « commande inutile » de Spotify).
+  async function toggle() {
+    try {
+      const p = await api("GET", "/me/player");
+      if (p?.is_playing) await api("PUT", "/me/player/pause");
+      else if (p?.item) await api("PUT", "/me/player/play" + (p.device?.id ? "?device_id=" + p.device.id : ""));
+      else { const s = getState(); if (s?.question) return play(s.question); }
+      playing = !p?.is_playing; msg = "";
+    } catch (e) { msg = explain(e); }
     render();
   }
 
@@ -239,8 +255,9 @@ window.BTSpotify = (() => {
       </div>
       <div class="err small" id="spMsg"></div>
       <p class="hint">La chanson se lance toute seule à chaque nouvelle question. <a href="#" id="spOut" style="color:var(--muted)">Déconnecter</a></p>`;
-    panel.querySelector("#spToggle").onclick = () => (playing ? pause() : resume());
-    panel.querySelector("#spRestart").onclick = () => { const s = getState(); if (s?.question) play(s.question); };
+    panel.querySelector("#spToggle").onclick = toggle;
+    // Relance la chanson en cours, ou à l'accueil la première chanson (pratique pour tester).
+    panel.querySelector("#spRestart").onclick = () => { const s = getState(); const q = s?.question || s?.next_question; if (q) play(q); };
     panel.querySelector("#spOut").onclick = (e) => { e.preventDefault(); disconnect(); };
     renderStatus();
   }
