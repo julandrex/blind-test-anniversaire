@@ -134,10 +134,13 @@ async function makeAvatar(file) {
     await img.decode();
     const w = img.naturalWidth, h = img.naturalHeight, n = Math.min(w, h);
     const c = document.createElement("canvas");
-    c.width = c.height = 160;
-    c.getContext("2d").drawImage(img, (w - n) / 2, (h - n) / 2, n, n, 0, 0, 160, 160);
-    const data = c.toDataURL("image/jpeg", 0.75);
-    return data.length <= 60000 ? data : c.toDataURL("image/jpeg", 0.4);
+    c.width = c.height = 320; // assez net pour le grand podium de l'écran TV
+    c.getContext("2d").drawImage(img, (w - n) / 2, (h - n) / 2, n, n, 0, 0, 320, 320);
+    for (const quality of [0.75, 0.55, 0.4]) {
+      const data = c.toDataURL("image/jpeg", quality);
+      if (data.length <= 60000) return data;
+    }
+    throw new Error("photo trop lourde");
   } finally { URL.revokeObjectURL(url); }
 }
 
