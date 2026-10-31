@@ -18,7 +18,7 @@ window.BTSpotify = (() => {
   let tok = (() => { try { return JSON.parse(LS.get(K.tok)); } catch { return null; } })();
   let device = null, deviceName = "", playing = false, msg = "", lastSent = null;
   let lyricsQid = null, lyricsCur = null;
-  const lyricsCache = {};
+  const lyricsCache = {}, coverCache = {};
 
   const clientId = () => QUIZ_CONFIG.spotifyClientId || LS.get(K.client) || "";
   const send = (m) => tv && tv.postMessage(m);
@@ -229,15 +229,34 @@ window.BTSpotify = (() => {
     return { synced, none, failed, total: rows.length };
   }
 
+  // Pochette de l'album : service public de Spotify, sans connexion (image 640 px si possible).
+  function fetchCover(q) {
+    if (!coverCache[q.id]) coverCache[q.id] = (async () => {
+      try {
+        const r = await fetch("https://open.spotify.com/oembed?url=" + encodeURIComponent("https://open.spotify.com/track/" + trackId(q)));
+        if (r.ok) return (await r.json()).thumbnail_url?.replace("/ab67616d00001e02", "/ab67616d0000b273") || null;
+      } catch {}
+      setTimeout(() => delete coverCache[q.id], 20000);
+      return null;
+    })();
+    return coverCache[q.id];
+  }
+
   // ---------- Branchement sur la partie ----------
   // Appelé à chaque nouvel état reçu (rafraîchissement ou action).
   function onState(s) {
     if ((s.status === "question" || s.status === "reveal") && s.question) {
       fetchLyrics(s.question); // préchargement
+      fetchCover(s.question);
       if (s.status === "reveal" && lyricsQid !== s.current_q) {
         // L'écran TV repère la question par sa position (current_q), pas par l'id de la question.
-        const pos = lyricsQid = s.current_q;
-        fetchLyrics(s.question).then((l) => { if (lyricsQid === pos) { lyricsCur = { ...l, qid: pos }; send(lyricsCur); renderStatus(); } });
+        // Titre et artiste partent tout de suite ; pochette et paroles suivent dès qu'elles arrivent.
+        const pos = lyricsQid = s.current_q, q = s.question;
+        lyricsCur = { type: "lyrics", qid: pos, title: q.track_title, artist: q.track_artist, lines: null, cover: null, pending: true };
+        send(lyricsCur);
+        const update = (patch) => { if (lyricsQid === pos) { lyricsCur = { ...lyricsCur, ...patch }; send(lyricsCur); renderStatus(); } };
+        fetchCover(q).then((cover) => update({ cover }));
+        fetchLyrics(q).then((l) => update({ lines: l.lines, pending: false }));
       }
     }
     if (s.status !== "reveal") { lyricsQid = null; lyricsCur = null; }
@@ -302,7 +321,7 @@ window.BTSpotify = (() => {
     const st = panel.querySelector("#spStatus"); if (!st) return;
     const s = getState?.();
     let lyr = "";
-    if (s?.status === "reveal") lyr = lyricsCur ? (lyricsCur.lines ? " · 🎤 paroles sur l'écran TV" : " · pas de paroles synchronisées") : " · recherche des paroles…";
+    if (s?.status === "reveal") lyr = lyricsCur && !lyricsCur.pending ? (lyricsCur.lines ? " · 🎤 paroles sur l'écran TV" : " · pas de paroles synchronisées") : " · recherche des paroles…";
     st.textContent = (deviceName ? "Appareil : " + deviceName : "Appareil : celui où Spotify est ouvert") + lyr;
     panel.querySelector("#spToggle").textContent = playing ? "⏸ Pause" : "▶ Reprendre";
     panel.querySelector("#spMsg").textContent = msg;

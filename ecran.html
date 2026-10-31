@@ -49,8 +49,13 @@
   .rv .top5 .lb li { font-size: 1.1rem; padding: .45rem .9rem; }
   .karaoke { background: linear-gradient(160deg, #1db95433, #0b3b2088); border: 1px solid #1db95466; border-radius: 1.4rem; padding: 1.6rem 2rem; }
   .karaoke .kt { font-size: 2rem; font-weight: 800; line-height: 1.15; }
-  .karaoke .ka { font-size: 1.3rem; color: #9ee8b9; margin-bottom: 1.2rem; }
-  .klines { height: 24rem; overflow: hidden; position: relative;
+  .karaoke .ka { font-size: 1.3rem; color: #9ee8b9; }
+  .khead { display: flex; align-items: center; gap: 1.2rem; margin-bottom: 1.2rem; }
+  .kcover { width: 7rem; height: 7rem; flex: none; object-fit: cover; border-radius: .7rem; box-shadow: 0 .4rem 1.4rem rgba(0,0,0,.45); }
+  /* Sans paroles : la pochette prend toute la place */
+  .karaoke.nolines .khead { flex-direction: column; text-align: center; margin: 0; }
+  .karaoke.nolines .kcover { width: min(24rem, 100%); height: auto; aspect-ratio: 1; border-radius: 1rem; }
+  .klines { height: 19rem; overflow: hidden; position: relative;
             mask-image: linear-gradient(transparent, #000 18%, #000 78%, transparent); -webkit-mask-image: linear-gradient(transparent, #000 18%, #000 78%, transparent); }
   .klines .track { transition: transform .45s cubic-bezier(.2,.8,.2,1); }
   .kl { font-size: 2.1rem; font-weight: 800; line-height: 1.25; padding: .35rem 0; color: rgba(255,255,255,.28); transition: color .3s, transform .3s; transform-origin: left center; }
@@ -97,7 +102,7 @@ async function refresh() {
 }
 
 function render() {
-  const k = JSON.stringify([st.status, st.current_q, st.leaderboard?.length, hasLyrics()]);
+  const k = JSON.stringify([st.status, st.current_q, st.leaderboard?.length, hasLyrics(), lyr?.cover, !!lyr?.lines]);
   document.getElementById("badge").textContent =
     st.status === "lobby" ? "Inscriptions ouvertes" : st.status === "finished" ? "Terminé" : `Question ${st.current_q} / ${st.total_q}`;
   if (k === key) return updateLive();
@@ -156,8 +161,11 @@ function renderKaraoke() {
         <div class="top5"><h2>Top 5</h2><ol class="lb">${(st.top || []).map((p) =>
           `<li><span class="rk">${p.rank}</span><span class="nm">${esc(p.name)}</span><span class="sc">${p.score}</span></li>`).join("")}</ol></div>
       </div>
-      <div class="karaoke">
-        <div class="kt">${esc(lyr.title)}</div><div class="ka">${esc(lyr.artist)}</div>
+      <div class="karaoke ${lyr.lines ? "" : "nolines"}">
+        <div class="khead">
+          ${lyr.cover ? `<img class="kcover" src="${esc(lyr.cover)}" alt="Pochette de ${esc(lyr.title)}">` : ""}
+          <div><div class="kt">${esc(lyr.title)}</div><div class="ka">${esc(lyr.artist)}</div></div>
+        </div>
         ${lyr.lines
           ? `<div class="klines" id="klines"><div class="track" id="ktrack">${lyr.lines.map((l) => `<div class="kl">${esc(l.text) || "♪"}</div>`).join("")}</div></div>`
           : ""}
