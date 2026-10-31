@@ -14,6 +14,10 @@
   main { min-height: 100vh; display: flex; flex-direction: column; padding: 2.2rem 3rem; }
   header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
   header .brand { font-size: 1.6rem; }
+  /* Petit QR code en coin pendant la partie, pour les retardataires */
+  #miniQr { position: fixed; right: 1rem; bottom: 1rem; z-index: 5; width: 7.6rem; padding: .4rem; border-radius: .7rem; background: #fff; color: #120a24; text-align: center; font-size: .72rem; font-weight: 700; line-height: 1.2; box-shadow: 0 .3rem 1rem rgba(0,0,0,.45); }
+  #miniQr[hidden] { display: none; }
+  #miniQrCode svg { width: 100%; height: auto; display: block; }
   #view { flex: 1; display: flex; flex-direction: column; justify-content: center; }
   .lobby { display: grid; grid-template-columns: auto 1fr; gap: 3rem; align-items: center; }
   #qr { background: #fff; padding: 1.2rem; border-radius: 1.2rem; width: 22rem; height: 22rem; }
@@ -29,8 +33,8 @@
   .choice .shape { width: 3rem; height: 3rem; font-size: 1.4rem; }
   .choice .n { margin-left: auto; font-size: 1.5rem; opacity: .9; }
   .choice.good::after { margin-left: 1rem; font-size: 2.4rem; }
-  .bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 1.6rem; font-size: 1.3rem; }
-  .timer { height: 12px; margin-top: 1.4rem; }
+  .bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 1.6rem; font-size: 1.3rem; padding-right: 8.6rem; }
+  .timer { height: 12px; margin: 1.4rem 8.6rem 0 0; }
   .top5 { margin-top: 1.6rem; }
   .top5 .lb li { font-size: 1.3rem; }
   .podium { max-width: 60rem; margin: 1rem auto 2rem; width: 100%; }
@@ -41,12 +45,15 @@
   .rest { max-width: 60rem; margin: 0 auto; width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: .6rem 1.2rem; }
   .rest li { font-size: 1.2rem; }
   /* Révélation avec paroles : choix à gauche, karaoké à droite */
-  .rv { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 2.4rem; align-items: start; }
-  .rv .ask { font-size: 2.2rem; margin: 0 0 1rem; text-align: left; }
-  .rv .choices { grid-template-columns: 1fr; gap: .7rem; }
-  .rv .choice { min-height: 4.2rem; font-size: 1.35rem; padding: .7rem 1.1rem; }
-  .rv .choice .shape { width: 2.2rem; height: 2.2rem; font-size: 1rem; }
-  .rv .top5 .lb li { font-size: 1.1rem; padding: .45rem .9rem; }
+  .rv { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 2rem; align-items: start; padding-right: 8.6rem; }
+  .rv .ask { font-size: 1.8rem; margin: 0 0 .7rem; text-align: left; }
+  .rv .choices { grid-template-columns: 1fr; gap: .5rem; }
+  .rv .choice { min-height: 3.2rem; font-size: 1.2rem; padding: .4rem 1rem; }
+  .rv .choice .shape { width: 1.9rem; height: 1.9rem; font-size: .9rem; }
+  .rv .top5 { margin-top: .9rem; }
+  .rv .top5 h2 { font-size: 1.1rem; margin-bottom: .3rem; }
+  .rv .top5 .lb { gap: .3rem; }
+  .rv .top5 .lb li { font-size: 1rem; padding: .2rem .8rem; }
   .karaoke { background: linear-gradient(160deg, #1db95433, #0b3b2088); border: 1px solid #1db95466; border-radius: 1.4rem; padding: 1.6rem 2rem; }
   .karaoke .kt { font-size: 2rem; font-weight: 800; line-height: 1.15; }
   .karaoke .ka { font-size: 1.3rem; color: #9ee8b9; }
@@ -58,7 +65,7 @@
   .klines { height: 19rem; overflow: hidden; position: relative;
             mask-image: linear-gradient(transparent, #000 18%, #000 78%, transparent); -webkit-mask-image: linear-gradient(transparent, #000 18%, #000 78%, transparent); }
   .klines .track { transition: transform .45s cubic-bezier(.2,.8,.2,1); }
-  .kl { font-size: 2.1rem; font-weight: 800; line-height: 1.25; padding: .35rem 0; color: rgba(255,255,255,.28); transition: color .3s, transform .3s; transform-origin: left center; }
+  .kl { font-size: 1.8rem; font-weight: 800; line-height: 1.25; padding: .35rem 0; color: rgba(255,255,255,.28); transition: color .3s, transform .3s; transform-origin: left center; }
   .kl.past { color: rgba(255,255,255,.55); }
   .kl.cur { color: #fff; transform: scale(1.04); text-shadow: 0 0 24px rgba(255,255,255,.25); }
   @media (prefers-reduced-motion: reduce) { .klines .track { transition: none; } }
@@ -68,7 +75,8 @@
 </head>
 <body>
 <main>
-  <header><div class="brand">🎵 Blind <span>Test</span> d'anniversaire</div><span class="pill" id="badge"></span></header>
+  <header><div class="brand">🎵 Blind <span>Test</span> d'anniversaire</div><span class="pill" id="badge"></span>
+    <div id="miniQr" hidden><div id="miniQrCode"></div><span>Rejoins la partie</span></div></header>
   <div id="view"><p class="center muted">Chargement…</p></div>
 </main>
 
@@ -102,6 +110,7 @@ async function refresh() {
 }
 
 function render() {
+  document.getElementById("miniQr").hidden = st.status !== "question" && st.status !== "reveal";
   const k = JSON.stringify([st.status, st.current_q, st.leaderboard?.length, hasLyrics(), lyr?.cover, !!lyr?.lines]);
   document.getElementById("badge").textContent =
     st.status === "lobby" ? "Inscriptions ouvertes" : st.status === "finished" ? "Terminé" : `Question ${st.current_q} / ${st.total_q}`;
@@ -117,6 +126,9 @@ function updateLive() {
   const c = document.getElementById("cnt"); if (c) c.textContent = st.status === "lobby" ? st.players_count : `${st.answers_count} / ${st.players_count}`;
 }
 
+const qrSvg = () => { const qr = qrcode(0, "M"); qr.addData(playerUrl); qr.make(); return qr.createSvgTag({ scalable: true, margin: 0 }); };
+document.getElementById("miniQrCode").innerHTML = qrSvg();
+
 function renderLobby() {
   view.innerHTML = `
     <div class="lobby pop">
@@ -129,8 +141,7 @@ function renderLobby() {
         <p class="count"><b id="cnt">${st.players_count}</b> joueur(s) inscrit(s)</p>
       </div>
     </div>`;
-  const qr = qrcode(0, "M"); qr.addData(playerUrl); qr.make();
-  document.getElementById("qr").innerHTML = qr.createSvgTag({ scalable: true, margin: 0 });
+  document.getElementById("qr").innerHTML = qrSvg();
 }
 
 function renderQuestion() {
