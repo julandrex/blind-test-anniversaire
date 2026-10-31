@@ -95,6 +95,7 @@
         <button class="btn" type="submit">➕ Ajouter</button>
       </form>
       <div class="err small" id="libErr"></div>
+      <div class="small" id="lyrStatus" aria-live="polite"></div>
       <div id="quizList"></div>
       <p class="hint">Après avoir ajouté une playlist, demande à Claude : « prépare les blind tests en attente ».
         Il crée les questions, puis le blind test passe en ✅ prêt. Tu peux le faire pendant qu'une partie est en cours.</p>
@@ -142,7 +143,7 @@ $("btnReplay").onclick = () => confirm("Rejouer : garder les joueurs mais remett
 let started = false, watching = false;
 function start(data) {
   $("login").hidden = true; $("dash").hidden = false;
-  if (!started) { started = true; BTSpotify.init($("spPanel"), () => st); }
+  if (!started) { started = true; BTSpotify.init($("spPanel"), () => st, call); }
   apply(data);
   if (!watching) { watching = true; watchGame(refresh, 1500); }
 }
@@ -181,7 +182,7 @@ const LIB_ERRORS = {
   QUIZ_NOT_READY: "Ce blind test n'est pas encore prêt.",
   QUIZ_ACTIVE: "Impossible de supprimer le blind test de la partie en cours.",
 };
-let libKey = "";
+let libKey = "", preparing = false;
 
 async function libCall(fn, args) {
   $("libErr").textContent = "";
@@ -203,6 +204,22 @@ $("addQuiz").onsubmit = async (e) => {
   if (await libCall("admin_add_quiz", { p_url: url, p_name: $("qName").value.trim() })) { $("qUrl").value = ""; $("qName").value = ""; }
 };
 
+async function prepareLyrics(quizId) {
+  if (preparing) return;
+  preparing = true; libKey = ""; renderLibrary();
+  const out = $("lyrStatus");
+  const r = await BTSpotify.prepareLyrics(quizId, (p) => {
+    out.textContent = `🎤 Préparation des paroles… ${p.done}/${p.todo} chansons vérifiées (${p.synced}/${p.total} prêtes)`;
+  });
+  preparing = false; libKey = "";
+  if (r.error) out.textContent = "Préparation impossible : problème de connexion à la base.";
+  else if (r.outage) out.textContent = `⚠️ Le service de paroles ne répond pas, préparation arrêtée. ${r.synced}/${r.total} paroles sont prêtes : réessaie plus tard.`;
+  else out.textContent = `✅ ${r.synced}/${r.total} chansons ont des paroles synchronisées.`
+    + (r.none ? ` Sans paroles synchronisées : ${r.none} (titre et artiste seuls sur l'écran TV).` : "")
+    + (r.failed ? ` Non vérifiées, service indisponible : ${r.failed} (réessaie plus tard).` : "");
+  refresh();
+}
+
 function renderLibrary() {
   const canSwitch = st.status === "lobby" || st.status === "finished";
   const key = JSON.stringify([st.quizzes, st.quiz_id, canSwitch]);
@@ -213,16 +230,18 @@ function renderLibrary() {
     const active = z.id === st.quiz_id, ready = z.status === "ready" && z.questions > 0;
     return `<div class="qrow ${active ? "active" : ""}">
       <div class="qn"><b>${esc(z.name)}</b>
-        <div class="small muted">${ready ? `${z.questions} questions` : "en attente de préparation"}
+        <div class="small muted">${ready ? `${z.questions} questions · 🎤 ${z.lyrics_synced}/${z.questions} paroles synchronisées` : "en attente de préparation"}
           · ${z.play_count ? `joué ${z.play_count} fois, dernière fois le ${fmt(z.last_played_at)}` : "jamais joué"}
           · <a href="${esc(z.playlist_url)}" target="_blank" rel="noopener">playlist</a></div></div>
       <span class="pill ${ready ? "ok" : "wait"}">${ready ? "✅ prêt" : "⏳ à préparer par Claude"}</span>
       <div class="acts">
+        ${ready ? `<button class="btn ghost" data-lyr="${z.id}" ${preparing ? "disabled" : ""}>🎤 Préparer les paroles</button>` : ""}
         ${active ? `<span class="pill" style="color:var(--accent2)">★ partie actuelle</span>`
           : `${ready ? `<button class="btn green" data-pick="${z.id}" ${canSwitch ? "" : "disabled title='Possible à l’accueil ou une fois la partie terminée'"}>Choisir</button>` : ""}
              <button class="btn ghost" data-del="${z.id}" data-name="${esc(z.name)}" title="Supprimer">🗑</button>`}
       </div></div>`;
   }).join("");
+  $("quizList").querySelectorAll("[data-lyr]").forEach((b) => b.onclick = () => prepareLyrics(+b.dataset.lyr));
   $("quizList").querySelectorAll("[data-pick]").forEach((b) => b.onclick = () =>
     confirm("Passer à ce blind test ? Les scores repartent à zéro, les joueurs restent inscrits.") && libCall("admin_select_quiz", { p_quiz_id: +b.dataset.pick }));
   $("quizList").querySelectorAll("[data-del]").forEach((b) => b.onclick = () =>

@@ -56,7 +56,6 @@
   .kl { font-size: 2.1rem; font-weight: 800; line-height: 1.25; padding: .35rem 0; color: rgba(255,255,255,.28); transition: color .3s, transform .3s; transform-origin: left center; }
   .kl.past { color: rgba(255,255,255,.55); }
   .kl.cur { color: #fff; transform: scale(1.04); text-shadow: 0 0 24px rgba(255,255,255,.25); }
-  .kplain { font-size: 1.4rem; line-height: 1.5; white-space: pre-line; color: rgba(255,255,255,.75); max-height: 24rem; overflow: hidden; }
   @media (prefers-reduced-motion: reduce) { .klines .track { transition: none; } }
   @media (max-width: 800px) {
     .rv { grid-template-columns: 1fr; } .lobby { grid-template-columns: 1fr; justify-items: center; text-align: center; } main { padding: 1.2rem 16px; } }
@@ -161,7 +160,7 @@ function renderKaraoke() {
         <div class="kt">${esc(lyr.title)}</div><div class="ka">${esc(lyr.artist)}</div>
         ${lyr.lines
           ? `<div class="klines" id="klines"><div class="track" id="ktrack">${lyr.lines.map((l) => `<div class="kl">${esc(l.text) || "♪"}</div>`).join("")}</div></div>`
-          : lyr.plain ? `<div class="kplain">${esc(lyr.plain)}</div>` : `<p class="muted">Paroles introuvables pour cette chanson 🎵</p>`}
+          : ""}
       </div>
     </div>`;
   kIdx = -2;

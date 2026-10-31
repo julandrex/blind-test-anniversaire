@@ -14,7 +14,7 @@ window.BTSpotify = (() => {
   const tv = "BroadcastChannel" in window ? new BroadcastChannel("blindtest-tv") : null;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  let panel, getState;
+  let panel, getState, rpc;
   let tok = (() => { try { return JSON.parse(LS.get(K.tok)); } catch { return null; } })();
   let device = null, deviceName = "", playing = false, msg = "", lastSent = null;
   let lyricsQid = null, lyricsCur = null;
@@ -23,7 +23,8 @@ window.BTSpotify = (() => {
   const clientId = () => QUIZ_CONFIG.spotifyClientId || LS.get(K.client) || "";
   const send = (m) => tv && tv.postMessage(m);
   const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  const uriOf = (q) => "spotify:track:" + q.spotify_url.split("/").pop().split("?")[0];
+  const trackId = (q) => q.spotify_url.split("/").pop().split("?")[0];
+  const uriOf = (q) => "spotify:track:" + trackId(q);
 
   // ---------- Connexion ----------
   async function login() {
@@ -177,7 +178,18 @@ window.BTSpotify = (() => {
     return lyricsCache[q.id];
   }
 
+  // Durée Spotify de la piste, pour choisir les paroles calées sur la bonne version (facultatif).
+  async function trackDuration(q) {
+    if (!tok) return null;
+    try { return (await api("GET", "/tracks/" + trackId(q)))?.duration_ms / 1000 || null; } catch { return null; }
+  }
+
+  // Paroles synchronisées uniquement : d'abord la sauvegarde Supabase, sinon LRCLIB (et on sauvegarde la réponse).
   async function searchLyrics(q) {
+    const res = { type: "lyrics", qid: q.id, title: q.track_title, artist: q.track_artist, lines: null, found: false };
+    const saved = await rpc?.("admin_lyrics_get", { p_track_id: trackId(q) });
+    if (saved) return { ...res, lines: saved, found: true };
+
     const params = new URLSearchParams({
       track_name: q.track_title.replace(/\s*\(.*?\)/g, ""),
       artist_name: q.track_artist.split(/\s*(?:&|,|feat\.?)\s*/i)[0],
@@ -187,15 +199,34 @@ window.BTSpotify = (() => {
       try { const r = await fetch("https://lrclib.net/api/search?" + params); if (r.ok) list = await r.json(); } catch {}
       if (!list) await sleep(1500);
     }
-    const res = { type: "lyrics", qid: q.id, title: q.track_title, artist: q.track_artist, lines: null, plain: null, found: !!list };
-    if (list) {
-      const dur = lastSent?.qid === q.id ? lastSent.duration_ms / 1000 : null;
-      const synced = list.filter((x) => x.syncedLyrics);
+    if (!list) return res; // service indisponible : on ne conclut rien pour cette chanson
+    res.found = true;
+    const synced = list.filter((x) => x.syncedLyrics);
+    if (synced.length > 1) {
+      const dur = await trackDuration(q);
       if (dur) synced.sort((a, b) => Math.abs(a.duration - dur) - Math.abs(b.duration - dur));
-      if (synced[0]) res.lines = parseLrc(synced[0].syncedLyrics);
-      if (!res.lines) res.plain = list.find((x) => x.plainLyrics)?.plainLyrics || null;
     }
+    if (synced[0]) res.lines = parseLrc(synced[0].syncedLyrics);
+    await rpc?.("admin_lyrics_put", { p_track_id: trackId(q), p_lines: res.lines });
     return res;
+  }
+
+  // Bouton « Préparer les paroles » : sauvegarde à l'avance tout un blind test.
+  async function prepareLyrics(quizId, onProgress) {
+    const rows = await rpc("admin_lyrics_status", { p_quiz_id: quizId });
+    if (!rows) return { error: true };
+    let synced = rows.filter((q) => q.lyrics === "synced").length, none = 0, failures = 0, failed = 0, done = 0;
+    const todo = rows.filter((q) => q.lyrics !== "synced");
+    for (const q of todo) {
+      onProgress({ done, todo: todo.length, synced, total: rows.length });
+      const res = await searchLyrics(q);
+      done++;
+      if (res.lines) synced++; else if (res.found) none++; else failed++;
+      failures = res.found ? 0 : failures + 1;
+      if (failures >= 3) return { outage: true, synced, none, total: rows.length };
+      await sleep(400);
+    }
+    return { synced, none, failed, total: rows.length };
   }
 
   // ---------- Branchement sur la partie ----------
@@ -271,14 +302,14 @@ window.BTSpotify = (() => {
     const st = panel.querySelector("#spStatus"); if (!st) return;
     const s = getState?.();
     let lyr = "";
-    if (s?.status === "reveal") lyr = lyricsCur ? (lyricsCur.lines ? " · 🎤 paroles sur l'écran TV" : " · paroles introuvables") : " · recherche des paroles…";
+    if (s?.status === "reveal") lyr = lyricsCur ? (lyricsCur.lines ? " · 🎤 paroles sur l'écran TV" : " · pas de paroles synchronisées") : " · recherche des paroles…";
     st.textContent = (deviceName ? "Appareil : " + deviceName : "Appareil : celui où Spotify est ouvert") + lyr;
     panel.querySelector("#spToggle").textContent = playing ? "⏸ Pause" : "▶ Reprendre";
     panel.querySelector("#spMsg").textContent = msg;
   }
 
-  async function init(el, stateGetter) {
-    panel = el; getState = stateGetter;
+  async function init(el, stateGetter, rpcCall) {
+    panel = el; getState = stateGetter; rpc = rpcCall;
     await handleRedirect();
     render();
     setInterval(poll, 1000);
@@ -289,5 +320,5 @@ window.BTSpotify = (() => {
     };
   }
 
-  return { init, onState, afterAction, play };
+  return { init, onState, afterAction, play, prepareLyrics };
 })();
