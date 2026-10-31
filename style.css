@@ -101,3 +101,8 @@ input:focus { border-color: var(--accent); }
 @keyframes pop { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .pop { animation: pop .35s cubic-bezier(.2,.9,.3,1.3); }
 @media (prefers-reduced-motion: reduce) { .pop { animation: none; } * { transition: none !important; } }
+
+.av { flex: none; display: inline-grid; place-items: center; width: 2em; height: 2em; border-radius: 50%; overflow: hidden;
+      background: var(--accent); color: #fff; font-style: normal; font-weight: 800; }
+.av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.podium .av { width: 4.2rem; height: 4.2rem; font-size: 1.6rem; margin-bottom: .4rem; border: 3px solid #fff; }

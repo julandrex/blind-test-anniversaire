@@ -26,3 +26,33 @@ window.watchGame = (refresh, pollMs) => {
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
   refresh();
 };
+
+// Avatars : petite pastille (photo si le joueur en a mis une, sinon initiale).
+// Les photos sont chargées à part et une seule fois, dès qu'une pastille apparaît dans la page.
+const avatarCache = {};
+window.avatarTag = (id, name) => `<i class="av" data-av="${esc(id)}">${esc((name || "?").trim().charAt(0).toUpperCase())}</i>`;
+
+function paintAvatars() {
+  document.querySelectorAll(".av[data-av]:not([data-done])").forEach((el) => {
+    const id = el.dataset.av;
+    if (!(id in avatarCache)) return;
+    el.dataset.done = "1";
+    if (avatarCache[id]) { const img = new Image(); img.alt = ""; img.src = avatarCache[id]; el.replaceChildren(img); }
+  });
+}
+
+let avatarTimer = null;
+async function loadAvatars() {
+  avatarTimer = null;
+  const ids = [...new Set([...document.querySelectorAll(".av[data-av]")].map((el) => el.dataset.av))].filter((id) => !(id in avatarCache));
+  if (ids.length) {
+    const { data, error } = await quizDb.rpc("get_avatars", { p_ids: ids.slice(0, 100) });
+    if (error) return;
+    ids.slice(0, 100).forEach((id) => { avatarCache[id] = data?.[id] || null; });
+  }
+  paintAvatars();
+}
+new MutationObserver(() => {
+  paintAvatars();
+  if (!avatarTimer && document.querySelector(".av[data-av]:not([data-done])")) avatarTimer = setTimeout(loadAvatars, 150);
+}).observe(document.body, { childList: true, subtree: true });

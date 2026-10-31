@@ -7,7 +7,7 @@
 <title>Blind Test – Animateur</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=20261101b">
 <style>
   main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 40px; }
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -104,8 +104,8 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js"></script>
-<script src="spotify.js"></script>
+<script src="config.js?v=20261101b"></script>
+<script src="spotify.js?v=20261101b"></script>
 <script>
 const PIN_KEY = "blindtest_admin_pin";
 const SHAPES = ["▲", "◆", "●", "■"];
@@ -253,10 +253,10 @@ function renderSide() {
   $("kPlayers").textContent = st.players.length;
   $("kAnswers").textContent = inQ ? `${st.answers_count}/${st.players.length}` : "–";
   $("lb").innerHTML = st.leaderboard.slice(0, 15).map((p) =>
-    `<li><span class="rk">${p.rank}</span><span class="nm">${esc(p.name)}</span><span class="small muted">${p.good} ✓</span><span class="sc">${p.score}</span></li>`
+    `<li><span class="rk">${p.rank}</span>${avatarTag(p.id, p.name)}<span class="nm">${esc(p.name)}</span><span class="small muted">${p.good} ✓</span><span class="sc">${p.score}</span></li>`
   ).join("") || `<li class="muted small">Personne pour l'instant</li>`;
   $("players").innerHTML = st.players.map((p) =>
-    `<span class="${inQ && p.answered ? "done" : ""}">${esc(p.name)}<button data-id="${p.id}" data-name="${esc(p.name)}" aria-label="Retirer ${esc(p.name)}">✕</button></span>`
+    `<span class="${inQ && p.answered ? "done" : ""}">${avatarTag(p.id, p.name)}${esc(p.name)}<button data-id="${p.id}" data-name="${esc(p.name)}" aria-label="Retirer ${esc(p.name)}">✕</button></span>`
   ).join("") || `<span class="muted small" style="border:0;background:none">En attente des inscriptions…</span>`;
   $("players").querySelectorAll("button").forEach((b) => b.onclick = () => kick(b.dataset.id, b.dataset.name));
 }
@@ -303,10 +303,10 @@ function renderStage() {
       <span class="pill">Terminé</span>
       <h2 class="center" style="font-size:2.2rem;margin-top:10px">🏆 Classement final</h2>
       <div class="podium" style="max-width:620px;margin:20px auto 28px">${top.map((p, k) => p ? `
-        <div class="step p${[2, 1, 3][k]}"><div class="who" style="font-size:1.2rem">${esc(p.name)}</div><div class="pts">${p.score} pts · ${p.good} ✓</div>
+        <div class="step p${[2, 1, 3][k]}">${avatarTag(p.id, p.name)}<div class="who" style="font-size:1.2rem">${esc(p.name)}</div><div class="pts">${p.score} pts · ${p.good} ✓</div>
         <div class="block">${["🥈", "🥇", "🥉"][k]}</div></div>` : "<div></div>").join("")}</div>
       <ol class="lb" style="max-width:620px;margin:0 auto">${lb.slice(3).map((p) =>
-        `<li><span class="rk">${p.rank}</span><span class="nm">${esc(p.name)}</span><span class="small muted">${p.good} ✓</span><span class="sc">${p.score}</span></li>`).join("")}</ol>
+        `<li><span class="rk">${p.rank}</span>${avatarTag(p.id, p.name)}<span class="nm">${esc(p.name)}</span><span class="small muted">${p.good} ✓</span><span class="sc">${p.score}</span></li>`).join("")}</ol>
       <p class="center muted" style="margin-top:20px">Fin du quiz après ${s.current_q} question${s.current_q > 1 ? "s" : ""}. Bon anniversaire ! 🎂</p>`;
     return;
   }
