@@ -17,7 +17,8 @@ window.BTSpotify = (() => {
   let panel, getState, rpc;
   let tok = (() => { try { return JSON.parse(LS.get(K.tok)); } catch { return null; } })();
   let device = null, deviceName = "", playing = false, msg = "", lastSent = null;
-  let lyricsQid = null, lyricsCur = null;
+  let lyricsQid = null, lyricsCur = null, polling = false, clock = null;
+  let shift = 0, shiftBase = null, shiftSave = null;
   const lyricsCache = {}, coverCache = {};
 
   const clientId = () => QUIZ_CONFIG.spotifyClientId || LS.get(K.client) || "";
@@ -148,13 +149,23 @@ window.BTSpotify = (() => {
   // Position de lecture → écran TV (karaoké)
   async function poll() {
     const s = getState?.();
-    if (!tok || !s || (s.status !== "question" && s.status !== "reveal")) return;
+    if (polling || !tok || !s || (s.status !== "question" && s.status !== "reveal")) return;
+    polling = true;
+    const t0 = Date.now();
     let p;
-    try { p = await api("GET", "/me/player"); } catch { return; }
+    try { p = await api("GET", "/me/player"); } catch { return; } finally { polling = false; }
     if (!p || !p.item) return;
+    const t1 = Date.now();
     playing = p.is_playing;
     if (p.device) { device = p.device.id; deviceName = p.device.name; }
-    lastSent = { type: "now", qid: s.current_q, trackId: p.item.id, progress_ms: p.progress_ms, duration_ms: p.item.duration_ms, is_playing: p.is_playing, at: Date.now() };
+    // Spotify a mesuré la position à peu près au milieu de la requête : on en déduit l'heure de début de la chanson.
+    // Cette heure est lissée d'un relevé à l'autre pour que les paroles ne sautent pas au gré du réseau.
+    const start = (t0 + t1) / 2 - p.progress_ms;
+    if (!p.is_playing) clock = null;
+    else if (!clock || clock.track !== p.item.id || Math.abs(start - clock.start) > 1000) clock = { track: p.item.id, start };
+    else if (t1 - t0 < 1000) clock.start += (start - clock.start) * 0.2;
+    const at = Date.now();
+    lastSent = { type: "now", qid: s.current_q, trackId: p.item.id, progress_ms: clock ? at - clock.start : p.progress_ms, duration_ms: p.item.duration_ms, is_playing: p.is_playing, at };
     send(lastSent);
     renderStatus();
   }
@@ -211,6 +222,21 @@ window.BTSpotify = (() => {
     return res;
   }
 
+  // Boutons de décalage : avance ou retarde toutes les lignes de la chanson en cours, puis sauvegarde le réglage.
+  function shiftLyrics(delta) {
+    const q = getState?.()?.question;
+    if (!q || !lyricsCur?.lines) return;
+    shiftBase ||= lyricsCur.lines;
+    shift = Math.round((shift + delta) * 10) / 10;
+    const lines = shiftBase.map((l) => ({ ...l, t: Math.max(0, Math.round((l.t + shift) * 100) / 100) }));
+    lyricsCur = { ...lyricsCur, lines };
+    lyricsCache[q.id] = Promise.resolve({ ...lyricsCur, found: true });
+    send(lyricsCur);
+    renderStatus();
+    clearTimeout(shiftSave);
+    shiftSave = setTimeout(() => rpc("admin_lyrics_put", { p_track_id: trackId(q), p_lines: lines }), 800);
+  }
+
   // Bouton « Préparer les paroles » : sauvegarde à l'avance tout un blind test.
   async function prepareLyrics(quizId, onProgress) {
     const rows = await rpc("admin_lyrics_status", { p_quiz_id: quizId });
@@ -252,6 +278,7 @@ window.BTSpotify = (() => {
         // L'écran TV repère la question par sa position (current_q), pas par l'id de la question.
         // Titre et artiste partent tout de suite ; pochette et paroles suivent dès qu'elles arrivent.
         const pos = lyricsQid = s.current_q, q = s.question;
+        shift = 0; shiftBase = null;
         lyricsCur = { type: "lyrics", qid: pos, title: q.track_title, artist: q.track_artist, lines: null, cover: null, pending: true };
         send(lyricsCur);
         const update = (patch) => { if (lyricsQid === pos) { lyricsCur = { ...lyricsCur, ...patch }; send(lyricsCur); renderStatus(); } };
@@ -307,12 +334,19 @@ window.BTSpotify = (() => {
         <button class="btn ghost" id="spToggle" style="padding:10px 14px"></button>
         <button class="btn ghost" id="spRestart" style="padding:10px 14px" title="Relancer la chanson de la question en cours">↺ Relancer</button>
       </div>
+      <div id="spShift" hidden style="margin-top:10px">
+        <div class="small muted">Paroles en avance sur la musique : <b>+</b>. En retard : <b>−</b>. Réglage gardé pour cette chanson (<span id="spShiftVal"></span>).</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+          ${[-5, -0.5, 0.5, 5].map((d) => `<button class="btn ghost" data-shift="${d}" style="padding:8px 12px">${d > 0 ? "+" : "−"}${String(Math.abs(d)).replace(".", ",")} s</button>`).join("")}
+        </div>
+      </div>
       <div class="err small" id="spMsg"></div>
       <p class="hint">La chanson se lance toute seule à chaque nouvelle question. <a href="#" id="spOut" style="color:var(--muted)">Déconnecter</a></p>`;
     panel.querySelector("#spToggle").onclick = toggle;
     // Relance la chanson en cours, ou à l'accueil la première chanson (pratique pour tester).
     panel.querySelector("#spRestart").onclick = () => { const s = getState(); const q = s?.question || s?.next_question; if (q) play(q); };
     panel.querySelector("#spOut").onclick = (e) => { e.preventDefault(); disconnect(); };
+    panel.querySelectorAll("[data-shift]").forEach((b) => b.onclick = () => shiftLyrics(+b.dataset.shift));
     renderStatus();
   }
 
@@ -325,6 +359,8 @@ window.BTSpotify = (() => {
     st.textContent = (deviceName ? "Appareil : " + deviceName : "Appareil : celui où Spotify est ouvert") + lyr;
     panel.querySelector("#spToggle").textContent = playing ? "⏸ Pause" : "▶ Reprendre";
     panel.querySelector("#spMsg").textContent = msg;
+    panel.querySelector("#spShift").hidden = !(s?.status === "reveal" && lyricsCur?.lines);
+    panel.querySelector("#spShiftVal").textContent = (shift > 0 ? "+" : shift < 0 ? "−" : "") + String(Math.abs(shift)).replace(".", ",") + " s";
   }
 
   async function init(el, stateGetter, rpcCall) {

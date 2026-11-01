@@ -7,7 +7,7 @@
 <title>Blind Test – Écran</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261101b">
+<link rel="stylesheet" href="style.css?v=20261101c">
 <style>
   /* Page à projeter sur la TV : jamais de titre de chanson ni de bonne réponse avant la révélation. */
   html { font-size: clamp(14px, 1.35vw, 26px); }
@@ -90,7 +90,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
-<script src="config.js?v=20261101b"></script>
+<script src="config.js?v=20261101c"></script>
 <script>
 const SHAPES = ["▲", "◆", "●", "■"];
 const view = document.getElementById("view");
@@ -207,7 +207,7 @@ function karaokeTick() {
   if (!box || !track) return;
   let idx = -1;
   if (now && now.qid === st.current_q) {
-    const pos = (now.progress_ms + (now.is_playing ? Date.now() - now.at : 0)) / 1000 + 0.25;
+    const pos = (now.progress_ms + (now.is_playing ? Date.now() - now.at : 0)) / 1000 + 0.15;
     for (let i = 0; i < lyr.lines.length && lyr.lines[i].t <= pos; i++) idx = i;
   }
   if (idx === kIdx) return;
