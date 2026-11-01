@@ -77,11 +77,10 @@
   .kl.past { color: rgba(255,255,255,.55); }
   .kl.cur { color: #fff; transform: scale(1.04); text-shadow: 0 0 24px rgba(255,255,255,.25); }
   /* Décompte avant la question suivante */
-  #countdown { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(18,10,36,.88); }
+  #countdown { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: var(--bg); }
   #countdown[hidden] { display: none; }
-  #countdown b { font-size: 16rem; font-weight: 800; line-height: 1; color: var(--accent2); animation: cdPop .9s ease-out both; }
-  @keyframes cdPop { from { transform: scale(1.5); opacity: 0; } 25% { transform: scale(1); opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .klines .track { transition: none; } #countdown b { animation: none; } }
+  #countdown b { font-size: 16rem; font-weight: 800; line-height: 1; color: var(--accent2); }
+  @media (prefers-reduced-motion: reduce) { .klines .track { transition: none; } }
   @media (max-width: 800px) {
     .rv { grid-template-columns: 1fr; } .lobby { grid-template-columns: 1fr; justify-items: center; text-align: center; } main { padding: 1.2rem 16px; } }
 </style>
@@ -92,7 +91,7 @@
     <div id="miniQr" hidden><div id="miniQrCode"></div><span>Rejoins la partie</span></div></header>
   <div id="view"><p class="center muted">Chargement…</p></div>
 </main>
-<div id="countdown" hidden></div>
+<div id="countdown" hidden><b id="cdNum"></b></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
@@ -115,15 +114,18 @@ if (tv) {
   tv.postMessage({ type: "hello" });
 }
 
-// Décompte envoyé par la page animateur ; il s'efface seul si la page animateur se ferme entre-temps.
-let cdTimer = null;
+// Décompte envoyé par la page animateur. Le chiffre est remplacé d'un coup, sans écran vide entre deux chiffres.
+// Il reste affiché jusqu'à l'arrivée de la question suivante, ou s'efface seul si la page animateur se ferme.
+let cdTimer = null, cdFrom = null;
+const cdBox = document.getElementById("countdown"), cdNum = document.getElementById("cdNum");
 function showCountdown(n) {
-  const el = document.getElementById("countdown");
   clearTimeout(cdTimer);
-  el.hidden = !n;
+  cdBox.hidden = !n;
   if (!n) return;
-  el.innerHTML = `<b>${+n}</b>`;
-  cdTimer = setTimeout(() => el.hidden = true, 1800);
+  cdFrom = st?.current_q;
+  cdNum.textContent = +n;
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) cdNum.animate([{ transform: "scale(1.2)" }, { transform: "scale(1)" }], { duration: 300, easing: "ease-out" });
+  cdTimer = setTimeout(() => cdBox.hidden = true, 1800);
 }
 const hasLyrics = () => lyr && st && lyr.qid === st.current_q && st.status === "reveal";
 
@@ -136,6 +138,7 @@ async function refresh() {
 }
 
 function render() {
+  if (st.current_q !== cdFrom) showCountdown(0);
   document.getElementById("miniQr").hidden = st.status !== "question" && st.status !== "reveal";
   const k = JSON.stringify([st.status, st.current_q, st.leaderboard?.length, hasLyrics(), lyr?.cover, !!lyr?.lines]);
   document.getElementById("badge").textContent =

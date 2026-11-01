@@ -173,9 +173,10 @@ async function nextWithCountdown() {
     const b = $("next"); if (b) b.textContent = `⏳ ${n}…`;
     await new Promise((r) => setTimeout(r, 1000));
   }
-  BTSpotify.countdown(0);
   counting = false;
-  if (same()) act("next"); else stageKey = "", renderStage();
+  if (same()) return act("next"); // l'écran TV retire le décompte dès qu'il reçoit la nouvelle question
+  BTSpotify.countdown(0);
+  stageKey = ""; renderStage();
 }
 
 async function kick(id, name) {
