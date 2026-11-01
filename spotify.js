@@ -375,5 +375,5 @@ window.BTSpotify = (() => {
     };
   }
 
-  return { init, onState, afterAction, play, prepareLyrics };
+  return { init, onState, afterAction, play, prepareLyrics, countdown: (n) => send({ type: "countdown", n }) };
 })();

@@ -7,7 +7,7 @@
 <title>Blind Test – Écran</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261101c">
+<link rel="stylesheet" href="style.css?v=20261101d">
 <style>
   /* Page à projeter sur la TV : jamais de titre de chanson ni de bonne réponse avant la révélation. */
   html { font-size: clamp(14px, 1.35vw, 26px); }
@@ -76,7 +76,12 @@
   .kl { font-size: 1.8rem; font-weight: 800; line-height: 1.25; padding: .35rem 6% .35rem 0; overflow-wrap: anywhere; color: rgba(255,255,255,.28); transition: color .3s, transform .3s; transform-origin: left center; }
   .kl.past { color: rgba(255,255,255,.55); }
   .kl.cur { color: #fff; transform: scale(1.04); text-shadow: 0 0 24px rgba(255,255,255,.25); }
-  @media (prefers-reduced-motion: reduce) { .klines .track { transition: none; } }
+  /* Décompte avant la question suivante */
+  #countdown { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(18,10,36,.88); }
+  #countdown[hidden] { display: none; }
+  #countdown b { font-size: 16rem; font-weight: 800; line-height: 1; color: var(--accent2); animation: cdPop .9s ease-out both; }
+  @keyframes cdPop { from { transform: scale(1.5); opacity: 0; } 25% { transform: scale(1); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .klines .track { transition: none; } #countdown b { animation: none; } }
   @media (max-width: 800px) {
     .rv { grid-template-columns: 1fr; } .lobby { grid-template-columns: 1fr; justify-items: center; text-align: center; } main { padding: 1.2rem 16px; } }
 </style>
@@ -87,10 +92,11 @@
     <div id="miniQr" hidden><div id="miniQrCode"></div><span>Rejoins la partie</span></div></header>
   <div id="view"><p class="center muted">Chargement…</p></div>
 </main>
+<div id="countdown" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
-<script src="config.js?v=20261101c"></script>
+<script src="config.js?v=20261101d"></script>
 <script>
 const SHAPES = ["▲", "◆", "●", "■"];
 const view = document.getElementById("view");
@@ -104,8 +110,20 @@ if (tv) {
     const m = e.data || {};
     if (m.type === "lyrics") { lyr = m; if (st) render(); }
     if (m.type === "now") now = m;
+    if (m.type === "countdown") showCountdown(m.n);
   };
   tv.postMessage({ type: "hello" });
+}
+
+// Décompte envoyé par la page animateur ; il s'efface seul si la page animateur se ferme entre-temps.
+let cdTimer = null;
+function showCountdown(n) {
+  const el = document.getElementById("countdown");
+  clearTimeout(cdTimer);
+  el.hidden = !n;
+  if (!n) return;
+  el.innerHTML = `<b>${+n}</b>`;
+  cdTimer = setTimeout(() => el.hidden = true, 1800);
 }
 const hasLyrics = () => lyr && st && lyr.qid === st.current_q && st.status === "reveal";
 

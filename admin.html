@@ -7,7 +7,7 @@
 <title>Blind Test – Animateur</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261101c">
+<link rel="stylesheet" href="style.css?v=20261101d">
 <style>
   main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 40px; }
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -104,13 +104,13 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=20261101c"></script>
-<script src="spotify.js?v=20261101c"></script>
+<script src="config.js?v=20261101d"></script>
+<script src="spotify.js?v=20261101d"></script>
 <script>
 const PIN_KEY = "blindtest_admin_pin";
 const SHAPES = ["▲", "◆", "●", "■"];
 let pin = (() => { try { return localStorage.getItem(PIN_KEY); } catch { return null; } })();
-let st = null, clockOffset = 0, busy = false, stageKey = "", timerHandle = null;
+let st = null, clockOffset = 0, busy = false, counting = false, stageKey = "", timerHandle = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -158,6 +158,24 @@ async function act(action) {
   const d = await call("admin_action", { p_action: action });
   busy = false;
   if (d) { stageKey = ""; apply(d); BTSpotify.afterAction(prev, d); } else refresh();
+}
+
+// Question suivante : décompte 3, 2, 1 sur l'écran TV, puis changement de question et de chanson.
+// Pas de décompte vers le classement final. Annulé si la partie a changé entre-temps (ex. clôture).
+async function nextWithCountdown() {
+  if (busy || counting) return;
+  if (st.current_q >= st.total_q) return act("next");
+  counting = true;
+  const from = st.current_q;
+  const same = () => st.current_q === from && (st.status === "question" || st.status === "reveal");
+  for (let n = 3; n > 0 && same(); n--) {
+    BTSpotify.countdown(n);
+    const b = $("next"); if (b) b.textContent = `⏳ ${n}…`;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  BTSpotify.countdown(0);
+  counting = false;
+  if (same()) act("next"); else stageKey = "", renderStage();
 }
 
 async function kick(id, name) {
@@ -333,7 +351,7 @@ function renderStage() {
     </div>
     ${last ? "" : trackBox(s.next_question, "Chanson suivante", "next")}`;
   if (!reveal) $("reveal").onclick = () => act("reveal");
-  $("next").onclick = () => act("next");
+  $("next").onclick = nextWithCountdown;
   $("finish").onclick = () => confirm("Clôturer le quiz maintenant et afficher le classement final ?") && act("finish");
   updateCounts();
   if (!reveal) { tick(); timerHandle = setInterval(tick, 500); }
@@ -355,7 +373,7 @@ document.addEventListener("keydown", (e) => {
   if (!st || e.target.tagName === "INPUT" || e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k === "r" && st.status === "question") act("reveal");
-  if (k === "n" && (st.status === "question" || st.status === "reveal")) act("next");
+  if (k === "n" && (st.status === "question" || st.status === "reveal")) nextWithCountdown();
 });
 
 if (pin) call("admin_state").then((d) => d ? start(d) : logout()); else logout();
