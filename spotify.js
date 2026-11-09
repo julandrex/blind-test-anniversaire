@@ -205,6 +205,19 @@ window.BTSpotify = (() => {
       track_name: q.track_title.replace(/\s*\(.*?\)/g, ""),
       artist_name: q.track_artist.split(/\s*(?:&|,|feat\.?)\s*/i)[0],
     });
+    // D'abord la correspondance exacte de LRCLIB (titre + artiste + durée Spotify à 2 s près) :
+    // elle départage deux chansons du même nom (ex. « Maman » 2015 et « maman » 2025 de Louane).
+    const dur = await trackDuration(q);
+    if (dur) {
+      try {
+        const r = await fetch("https://lrclib.net/api/get?" + params + "&duration=" + Math.round(dur));
+        const lines = r.ok ? parseLrc((await r.json()).syncedLyrics || "") : null;
+        if (lines) {
+          await rpc?.("admin_lyrics_put", { p_track_id: trackId(q), p_lines: lines });
+          return { ...res, lines, found: true };
+        }
+      } catch {}
+    }
     let list = null;
     for (let i = 0; i < 3 && !list; i++) {
       try { const r = await fetch("https://lrclib.net/api/search?" + params); if (r.ok) list = await r.json(); } catch {}
@@ -213,10 +226,7 @@ window.BTSpotify = (() => {
     if (!list) return res; // service indisponible : on ne conclut rien pour cette chanson
     res.found = true;
     const synced = list.filter((x) => x.syncedLyrics);
-    if (synced.length > 1) {
-      const dur = await trackDuration(q);
-      if (dur) synced.sort((a, b) => Math.abs(a.duration - dur) - Math.abs(b.duration - dur));
-    }
+    if (dur) synced.sort((a, b) => Math.abs(a.duration - dur) - Math.abs(b.duration - dur));
     if (synced[0]) res.lines = parseLrc(synced[0].syncedLyrics);
     await rpc?.("admin_lyrics_put", { p_track_id: trackId(q), p_lines: res.lines });
     return res;
