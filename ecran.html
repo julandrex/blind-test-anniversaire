@@ -7,7 +7,7 @@
 <title>Blind Test – Écran</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261101d">
+<link rel="stylesheet" href="style.css?v=20261109a">
 <style>
   /* Page à projeter sur la TV : jamais de titre de chanson ni de bonne réponse avant la révélation. */
   html { font-size: clamp(14px, 1.35vw, 26px); }
@@ -95,7 +95,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
-<script src="config.js?v=20261101d"></script>
+<script src="config.js?v=20261109a"></script>
 <script>
 const SHAPES = ["▲", "◆", "●", "■"];
 const view = document.getElementById("view");
@@ -185,7 +185,7 @@ function renderQuestion() {
   if (reveal && hasLyrics()) return renderKaraoke();
   view.innerHTML = `
     <div class="pop">
-      <div class="ask">${q.kind === "artist" ? "🎤 Qui chante ?" : "🎶 Quel est le titre ?"}</div>
+      <div class="ask">${askLabel(q.kind)}</div>
       <div class="choices">${q.choices.map((c, i) => `
         <div class="choice c${i} ${reveal ? (i === st.correct_index ? "good" : "dim") : ""}">
           <span class="shape">${SHAPES[i]}</span><span>${esc(c)}</span></div>`).join("")}</div>
@@ -202,7 +202,7 @@ function renderKaraoke() {
   view.innerHTML = `
     <div class="rv pop">
       <div>
-        <div class="ask">${q.kind === "artist" ? "🎤 Qui chante ?" : "🎶 Quel est le titre ?"}</div>
+        <div class="ask">${askLabel(q.kind)}</div>
         <div class="choices">${q.choices.map((c, i) => `
           <div class="choice c${i} ${i === st.correct_index ? "good" : "dim"}"><span class="shape">${SHAPES[i]}</span><span>${esc(c)}</span></div>`).join("")}</div>
         <div class="top5"><h2>Top 5</h2><ol class="lb">${(st.top || []).map((p) =>

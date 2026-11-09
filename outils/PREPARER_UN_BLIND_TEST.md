@@ -24,6 +24,7 @@ Si le blind test n'a pas encore de vrai nom (« Nouvelle playlist »), reprendre
   (ex. Claude François → Mike Brant, Joe Dassin, Frédéric François).
   Pour les titres : de préférence d'autres chansons connues du même artiste.
 - `title` = titre propre (sans « Radio Edit », « feat. … », « Remastered ») ; `artist` = artistes tels qu'affichés.
+- Chansons Disney (ou de films) : type « De quel film ? » (`movie`, lettre F dans `questions_<id>.txt`), bonne réponse = titre du film, leurres = d'autres films Disney de la même époque.
 - Featuring : la bonne réponse est l'artiste principal, les leurres sont des artistes seuls (ou des duos du même format).
 
 Écrire le JSON (format en tête de `build_quiz_sql.py`), puis :

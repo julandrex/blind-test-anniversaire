@@ -7,7 +7,7 @@
 <title>Blind Test Anniversaire</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261101d">
+<link rel="stylesheet" href="style.css?v=20261109a">
 <style>
   main { max-width: 520px; margin: 0 auto; padding: 20px 16px 40px; }
   header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
@@ -40,7 +40,7 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=20261101d"></script>
+<script src="config.js?v=20261109a"></script>
 <script>
 const KEY = "blindtest_player";
 const app = document.getElementById("app");
@@ -159,7 +159,7 @@ function renderLobby() {
     </div>
     <div class="card small muted">
       <b style="color:var(--text)">Règles :</b> une chanson passe, tu choisis parmi 4 réponses
-      (parfois l'artiste, parfois le titre). Une seule réponse possible, pas de retour en arrière !
+      (l'artiste, le titre ou le film). Une seule réponse possible, pas de retour en arrière !
       Bonne réponse = 500 pts + jusqu'à 500 pts de bonus si tu es rapide.
     </div>`;
 }
@@ -169,7 +169,7 @@ function questionHeader() {
   return `
     <div class="qhead"><span class="pill">Question ${state.current_q} / ${state.total_q}</span>
       <span class="small muted" id="elapsed"></span></div>
-    <div class="ask">${q.kind === "artist" ? "🎤 Qui chante ?" : "🎶 Quel est le titre ?"}</div>`;
+    <div class="ask">${askLabel(q.kind)}</div>`;
 }
 
 function choicesHtml(opts) {

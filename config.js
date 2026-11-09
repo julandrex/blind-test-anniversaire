@@ -17,6 +17,9 @@ window.quizDb = supabase.createClient(QUIZ_CONFIG.supabaseUrl, QUIZ_CONFIG.supab
   auth: { persistSession: false }
 });
 
+// Intitulé de la question selon son type (artist, title ou movie pour les chansons de film).
+window.askLabel = (kind) => ({ artist: "🎤 Qui chante ?", movie: "🎬 De quel film ?" }[kind] || "🎶 Quel est le titre ?");
+
 window.esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // Rafraîchit `refresh` à chaque changement de la partie (temps réel) + filet de sécurité par polling.
